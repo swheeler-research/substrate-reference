@@ -1,0 +1,83 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the implementation as below. The architectural papers are listed under references."
+type: software
+title: "The Sovereign Substrate: Reference Implementation"
+abstract: "Python reference implementation of the Sovereign Substrate architecture. Approximately 3,500 lines of core substrate code, 4,500 lines of tests, and 9,000 lines of worked examples; 225 passing tests and twelve end-to-end demonstrations against substantively different problems (Universal Credit single and cross-operator, Horizon, Robodebt, Lavender, SolarWinds, CrowdStrike, Boeing 737 MAX, Five Eyes, LIBOR, London Whale, constitutional anchoring). Conforms to the architecture specified in the companion paper; the principal architectural treatise develops the constitutional argument."
+authors:
+  - family-names: Wheeler
+    given-names: S.
+    orcid: "https://orcid.org/0009-0009-8693-0148"
+    affiliation: "Independent researcher"
+version: "v1.0"
+date-released: 2026-05-15
+url: "https://github.com/swheeler-research/substrate-reference"
+repository-code: "https://github.com/swheeler-research/substrate-reference"
+license: CC-BY-4.0
+# TODO: After this implementation is deposited on Zenodo via GitHub release, add the concept and version DOIs here.
+keywords:
+  - governed computation
+  - computational governance
+  - reference implementation
+  - compositional architecture
+  - policy composition
+  - attributable execution
+  - refusal semantics
+  - content-addressable systems
+  - witnessed admission
+  - Certificate Transparency
+  - cooperative substrates
+  - multi-custodian quorum
+  - compile-time governance
+  - runtime policy evaluation
+  - Python
+references:
+  - type: generic
+    title: "The Sovereign Substrate: A constitutional architecture for governed computation"
+    authors:
+      - family-names: Wheeler
+        given-names: S.
+        orcid: "https://orcid.org/0009-0009-8693-0148"
+        affiliation: "Independent researcher"
+    year: 2026
+    month: 5
+    version: "v1.0"
+    publisher:
+      name: Zenodo
+    doi: "10.5281/zenodo.19960841"
+    identifiers:
+      - type: doi
+        value: "10.5281/zenodo.19960841"
+        description: "Concept DOI (all versions)"
+      - type: doi
+        value: "10.5281/zenodo.19960842"
+        description: "Version DOI (v1.0)"
+      - type: url
+        value: "https://zenodo.org/records/19960842"
+        description: "Zenodo record"
+    license: CC-BY-4.0
+    abstract: "The principal architectural paper. Three primitive types compose under eight protocol mechanisms; twelve cases from public record exercise the architecture; the constitutional argument and adoption-space treatment are developed at full depth."
+  - type: generic
+    title: "The Sovereign Substrate: Reference Architecture and Implementation"
+    authors:
+      - family-names: Wheeler
+        given-names: S.
+        orcid: "https://orcid.org/0009-0009-8693-0148"
+        affiliation: "Independent researcher"
+    year: 2026
+    month: 5
+    version: "v1.0"
+    publisher:
+      name: Zenodo
+    doi: "10.5281/zenodo.20237900"
+    identifiers:
+      - type: doi
+        value: "10.5281/zenodo.20237900"
+        description: "Concept DOI (all versions)"
+      - type: doi
+        value: "10.5281/zenodo.20237901"
+        description: "Version DOI (v1.0)"
+      - type: url
+        value: "https://zenodo.org/records/20237901"
+        description: "Zenodo record"
+    license: CC-BY-4.0
+    abstract: "Technical companion to the principal paper. Specifies the architecture at conformance depth and documents this reference implementation that conforms to it."

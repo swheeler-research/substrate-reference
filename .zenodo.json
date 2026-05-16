@@ -1,0 +1,45 @@
+{
+  "title": "The Sovereign Substrate: Reference Implementation",
+  "description": "Python reference implementation of the Sovereign Substrate architecture. Approximately 3,500 lines of core substrate code, 4,500 lines of tests, and 9,000 lines of worked examples; 225 passing tests and twelve end-to-end demonstrations against substantively different problems (Universal Credit single and cross-operator, Horizon, Robodebt, Lavender, SolarWinds, CrowdStrike, Boeing 737 MAX, Five Eyes, LIBOR, London Whale, constitutional anchoring). Conforms to the architecture specified in 'The Sovereign Substrate: Reference Architecture and Implementation' (S. Wheeler, v1.0). The principal architectural treatise is 'The Sovereign Substrate: A constitutional architecture for governed computation' (S. Wheeler, v1.0; https://doi.org/10.5281/zenodo.19960841).",
+  "upload_type": "software",
+  "license": "CC-BY-4.0",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Wheeler, S.",
+      "affiliation": "Independent researcher",
+      "orcid": "0009-0009-8693-0148"
+    }
+  ],
+  "keywords": [
+    "governed computation",
+    "computational governance",
+    "reference implementation",
+    "compositional architecture",
+    "policy composition",
+    "attributable execution",
+    "refusal semantics",
+    "content-addressable systems",
+    "witnessed admission",
+    "Certificate Transparency",
+    "cooperative substrates",
+    "multi-custodian quorum",
+    "compile-time governance",
+    "runtime policy evaluation",
+    "Python"
+  ],
+  "related_identifiers": [
+    {
+      "relation": "isSupplementTo",
+      "identifier": "10.5281/zenodo.19960841",
+      "resource_type": "publication-workingpaper"
+    },
+    {
+      "relation": "isSupplementTo",
+      "identifier": "10.5281/zenodo.20237900",
+      "resource_type": "publication-workingpaper"
+    }
+  ],
+  "communities": [],
+  "language": "eng"
+}
