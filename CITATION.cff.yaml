@@ -9,11 +9,21 @@ authors:
     orcid: "https://orcid.org/0009-0009-8693-0148"
     affiliation: "Independent researcher"
 version: "v1.0"
-date-released: 2026-05-15
+date-released: 2026-05-16
 url: "https://github.com/swheeler-research/substrate-reference"
 repository-code: "https://github.com/swheeler-research/substrate-reference"
 license: CC-BY-4.0
-# TODO: After this implementation is deposited on Zenodo via GitHub release, add the concept and version DOIs here.
+doi: "10.5281/zenodo.20238427"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.20238427"
+    description: "Concept DOI (all versions)"
+  - type: doi
+    value: "10.5281/zenodo.20238428"
+    description: "Version DOI (v1.0)"
+  - type: url
+    value: "https://zenodo.org/records/20238428"
+    description: "Zenodo record"
 keywords:
   - governed computation
   - computational governance
