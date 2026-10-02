@@ -6,6 +6,16 @@ Act on an append-only ledger. Each Act references the previous Act's
 content_id, forming a hash chain: tampering with any past Act invalidates
 the chain from that point onward, and verify() can detect it.
 
+An Act also carries the lineage and attribution references the
+architecture requires of a ledger entry. `sub_invocations` holds the
+content identities of the acts the entry's own execution caused, so that
+a lineage query reconstructs the call tree from the ledger alone
+(PP 3.6.1). `policy_refusals` holds every policy refusal that
+contributed to a refused verdict, so that attribution of a refusal does
+not depend on which refusing policy the runtime happened to reach first
+(PP 3.3, PP 4.10). Both are covered by the content hash, so the chain
+makes them as tamper-evident as the verdict itself.
+
 Phase 1 has a single in-process FederatedLedger. The "federated" in the
 name refers to its future role: Phase 3 will replicate the ledger across
 multiple custodians, and any divergence between custodians' ledgers will
@@ -18,6 +28,30 @@ from dataclasses import dataclass
 from typing import Any, Iterator
 
 from substrate.primitives import _make_jsonable, content_hash
+
+
+@dataclass(frozen=True)
+class PolicyRefusal:
+    """One policy's refusal of an act, recorded on the refused act.
+
+    The runtime evaluates every in-scope policy and records a
+    PolicyRefusal for each one that refused, rather than stopping at the
+    first. Recording all of them is what makes the attribution
+    independent of the order the policies are iterated in: the compiled
+    form's policy tuple is sorted by content identity, which is
+    arbitrary with respect to the authority, specificity or scale of the
+    policies it holds, so privileging its first refusing entry would
+    privilege a hash.
+
+    Fields:
+        policy_id: content_id of the refusing policy functional unit.
+        rationale: the rationale the policy's own act carried.
+        act_id: content_id of the policy's own Act on this ledger, so an
+            auditor can read the refusal in full rather than in summary.
+    """
+    policy_id: str
+    rationale: str
+    act_id: str
 
 
 @dataclass(frozen=True)
@@ -55,6 +89,19 @@ class Act:
         output_or_rationale: invocation output, refusal rationale, or
             administrative action details.
         kind: "invocation" (default) or "administrative".
+        sub_invocations: content_ids of the acts committed during this
+            act's own execution: the direct sub-invocations its
+            implementation made, in the order it made them. Direct
+            only; the tree is recovered by following the edges at each
+            level, so recording the transitive closure would duplicate
+            what the chain already holds. Empty for an act whose
+            implementation invoked nothing, for administrative acts, and
+            for acts that refused before reaching their implementation.
+        policy_refusals: a PolicyRefusal for every in-scope policy that
+            refused this act. Empty on a permit. On a refusal caused by
+            policy evaluation it holds the complete set;
+            `output_or_rationale` continues to carry the summary
+            rationale of one of them, unchanged in shape.
     """
     previous_act_id: str
     compiled_form_id: str
@@ -63,6 +110,8 @@ class Act:
     verdict: str
     output_or_rationale: Any
     kind: str = "invocation"
+    sub_invocations: tuple = ()
+    policy_refusals: tuple = ()
 
     def content_id(self) -> str:
         return content_hash({
@@ -74,6 +123,8 @@ class Act:
             "inputs": _make_jsonable(self.inputs),
             "verdict": self.verdict,
             "output_or_rationale": _make_jsonable(self.output_or_rationale),
+            "sub_invocations": list(self.sub_invocations),
+            "policy_refusals": _make_jsonable(self.policy_refusals),
         })
 
 

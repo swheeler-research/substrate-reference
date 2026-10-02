@@ -463,3 +463,168 @@ def test_every_invocation_records_a_ledger_entry():
     verdicts = [a.verdict for a in led]
     assert verdicts == ["permit", "permit", "refuse", "refuse", "refuse"]
     assert led.verify() is True
+
+
+# =============================================================================
+# Refusal attribution across every refusing policy
+# =============================================================================
+
+def _refusing_policy_ids(runtime, src_cid, inputs, cw_cid):
+    """The policy content_ids that refuse `inputs`, in compiled-form order.
+
+    Evaluates each in-scope policy directly, so the expected set is derived
+    from the policies' own behaviour rather than from the parent's record.
+    """
+    refusing = []
+    for policy_cid in runtime.compiled_for(src_cid).policies:
+        if isinstance(runtime.invoke(policy_cid, inputs, cw_cid), Refuse):
+            refusing.append(policy_cid)
+    return refusing
+
+
+def test_every_refusing_policy_is_recorded_on_the_refused_act():
+    """Three retention caps, all exceeded. All three refuse; all three are
+    on the act. Previously the loop returned at the first, so the act
+    recorded one of the three and which one was decided by content-hash
+    sort order."""
+    runtime, src_cid, cw_cid, led = _wire_up_with_policies(
+        lambda code: [
+            _retention_policy(code, max_days=30),
+            _retention_policy(code, max_days=60),
+            _retention_policy(code, max_days=90),
+        ]
+    )
+    expected = _refusing_policy_ids(runtime, src_cid, {"max_retention_days": 100}, cw_cid)
+    assert len(expected) == 3
+    before = len(led)
+
+    result = runtime.invoke(
+        src_cid, inputs={"max_retention_days": 100}, invoking_credential_id=cw_cid,
+    )
+    assert isinstance(result, Refuse)
+
+    act = list(led)[-1]
+    assert act.verdict == "refuse"
+    assert [r.policy_id for r in act.policy_refusals] == expected
+    # Each refusal carries its own rationale and its own act, so the
+    # auditor reads all three in full rather than one in summary.
+    caps = sorted(
+        cap for cap in ("cap of 30", "cap of 60", "cap of 90")
+        if any(cap in r.rationale for r in act.policy_refusals)
+    )
+    assert caps == ["cap of 30", "cap of 60", "cap of 90"]
+    policy_acts = {a.content_id() for a in list(led)[before:]}
+    for refusal in act.policy_refusals:
+        assert refusal.act_id in policy_acts
+
+
+def test_attribution_does_not_depend_on_content_hash_sort_order():
+    """compiled_form.policies is sorted by content identity. The recorded
+    attribution covers every refusing policy in that tuple, so no policy is
+    privileged by where its hash happens to sort."""
+    runtime, src_cid, cw_cid, led = _wire_up_with_policies(
+        lambda code: [
+            _retention_policy(code, max_days=30),
+            _retention_policy(code, max_days=60),
+            _retention_policy(code, max_days=90),
+        ]
+    )
+    policies = runtime.compiled_for(src_cid).policies
+    assert list(policies) == sorted(policies)
+
+    result = runtime.invoke(
+        src_cid, inputs={"max_retention_days": 100}, invoking_credential_id=cw_cid,
+    )
+    assert isinstance(result, Refuse)
+    act = list(led)[-1]
+    # Every in-scope policy refused, so the record is the whole tuple: a
+    # complete set cannot be a function of the ordering.
+    assert {r.policy_id for r in act.policy_refusals} == set(policies)
+    # The summary rationale still names exactly one of them, which is the
+    # backward-compatible shape and is why it is not the attribution.
+    named = [p for p in policies if p in result.rationale]
+    assert len(named) == 1
+
+
+def test_policies_that_permitted_are_not_recorded_as_refusals():
+    """Caps of 30 and 90 against 60 days: the 30 cap refuses, the 90 cap
+    permits. Only the refusal is recorded."""
+    runtime, src_cid, cw_cid, led = _wire_up_with_policies(
+        lambda code: [
+            _retention_policy(code, max_days=30),
+            _retention_policy(code, max_days=90),
+        ]
+    )
+    result = runtime.invoke(
+        src_cid, inputs={"max_retention_days": 60}, invoking_credential_id=cw_cid,
+    )
+    assert isinstance(result, Refuse)
+    act = list(led)[-1]
+    assert len(act.policy_refusals) == 1
+    assert "cap of 30" in act.policy_refusals[0].rationale
+
+
+def test_a_permit_records_no_policy_refusals():
+    runtime, src_cid, cw_cid, led = _wire_up_with_policies(
+        lambda code: [_retention_policy(code, max_days=30)]
+    )
+    result = runtime.invoke(
+        src_cid, inputs={"max_retention_days": 30}, invoking_credential_id=cw_cid,
+    )
+    assert isinstance(result, Permit)
+    assert list(led)[-1].policy_refusals == ()
+
+
+def test_a_refusal_before_policy_evaluation_records_no_policy_refusals():
+    """The policy_refusals field attributes policy refusals only. A
+    credential refusal happens before any policy is reached and leaves it
+    empty, so an auditor can tell the two apart."""
+    runtime, src_cid, cw_cid, led = _wire_up_with_policies(
+        lambda code: [_retention_policy(code, max_days=30)]
+    )
+    runtime.credentials.revoke(cw_cid)
+    result = runtime.invoke(src_cid, inputs={}, invoking_credential_id=cw_cid)
+    assert isinstance(result, Refuse)
+    assert list(led)[-1].policy_refusals == ()
+
+
+def test_the_refusal_rationale_keeps_its_published_shape():
+    """The rationale string is a published field. Its shape is unchanged:
+    it names one refusing policy, quotes that policy's rationale, and cites
+    that policy's act."""
+    runtime, src_cid, cw_cid, led = _wire_up_with_policies(
+        lambda code: [
+            _retention_policy(code, max_days=30),
+            _retention_policy(code, max_days=60),
+        ]
+    )
+    result = runtime.invoke(
+        src_cid, inputs={"max_retention_days": 100}, invoking_credential_id=cw_cid,
+    )
+    assert isinstance(result, Refuse)
+    first = list(led)[-1].policy_refusals[0]
+    assert result.rationale == (
+        f"policy {first.policy_id} refused: {first.rationale} "
+        f"(policy act: {first.act_id})"
+    )
+
+
+def test_every_in_scope_policy_is_evaluated_on_a_refusal():
+    """The cost of complete attribution: the loop no longer short-circuits,
+    so each in-scope policy is invoked and commits its own act even when an
+    earlier one has already refused. Three policies and a refused parent
+    make four acts, where short-circuiting made two."""
+    runtime, src_cid, cw_cid, led = _wire_up_with_policies(
+        lambda code: [
+            _retention_policy(code, max_days=30),
+            _retention_policy(code, max_days=60),
+            _retention_policy(code, max_days=90),
+        ]
+    )
+    result = runtime.invoke(
+        src_cid, inputs={"max_retention_days": 100}, invoking_credential_id=cw_cid,
+    )
+    assert isinstance(result, Refuse)
+    assert len(led) == 4
+    assert [a.verdict for a in led] == ["refuse", "refuse", "refuse", "refuse"]
+    assert led.verify() is True

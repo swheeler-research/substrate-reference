@@ -20,6 +20,8 @@ env/
 .DS_Store
 
 #Claude
-docs/
+# docs/ is ignored except the specification_gaps.md the source cites.
+docs/*
+!docs/specification_gaps.md
 CLAUDE.md
 .claude

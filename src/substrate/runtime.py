@@ -20,10 +20,19 @@ At every act:
 5. Evaluate every policy in the compiled form. Policies are themselves
    functional units; the runtime invokes each through this same invoke()
    pipeline (each policy invocation produces its own Act on the ledger).
-   If any policy returns Refuse, the parent refuses with that policy's
-   rationale. Strictest-binding-wins emerges from this refuse-wins
-   semantic: when multiple policies cover the same dimension, the first
-   to refuse anything outside its bound is the binding constraint.
+   If any policy returns Refuse, the parent refuses. Strictest-binding-wins
+   emerges from this refuse-wins semantic: any policy that contributes a
+   stricter binding contributes a refusal under conditions where the
+   looser binding would have permitted (PP 3.3).
+   Evaluation does not stop at the first refusal. Every in-scope policy
+   is evaluated and every refusal is recorded on the refused act, because
+   the compiled form's policy tuple is sorted by content identity and
+   that order is arbitrary with respect to authority, specificity or
+   scale; stopping at its first refusing entry would make the recorded
+   attribution a function of a hash. The architecture's roll-up "does not
+   privilege any particular authority's policies" (PP 3.3) and its
+   forensic reconstructibility claim (PP 4.10) is a claim about the
+   ledger alone, so the ledger must hold all of them.
 6. If every policy permits, execute the source unit's implementation.
    The implementation is itself a content-addressed state unit (the
    Horizon correction): the runtime fetches it from the archive by the
@@ -33,7 +42,13 @@ At every act:
    implementation_ref refuses (specification-only units cannot run).
 6. Record the verdict (permit with output, or refuse with rationale) as
    an Act on the federated ledger. Every invocation produces a ledger
-   entry, regardless of outcome.
+   entry, regardless of outcome. The entry also records the act's direct
+   sub-invocations by content identity, so that lineage queries
+   reconstruct the call tree from the ledger alone (PP 3.6.1); the
+   references are taken from the invocation frame the runtime already
+   maintains for calibration propagation, and are recorded on refusals
+   as well as permits, since an act that refused after invoking
+   sub-units has a lineage worth keeping.
 
 The runtime never walks the reference graph; it evaluates the already-
 compiled form. Graph traversal happens once at compile-at-commit.
@@ -62,7 +77,7 @@ from substrate.confidence import (
 )
 from substrate.drift import DriftMonitor
 from substrate.federation import verify_compiled_form
-from substrate.ledger import Act, FederatedLedger
+from substrate.ledger import Act, FederatedLedger, PolicyRefusal
 from substrate.primitives import StateUnit
 
 
@@ -117,12 +132,16 @@ class Runtime:
         # their spec. Drift is runtime state (per process), not archive
         # state, because it depends on observed outputs over time.
         self.drift_monitor = DriftMonitor()
-        # Invocation stack for confidence propagation. Each frame is a
-        # dict {"sub_confidences": [...]}. Pushed before an impl runs
-        # so the impl's runtime.invoke() calls deposit their results'
-        # confidence into the parent's frame. Frames are NOT pushed for
-        # policy-evaluation invocations; policy results don't propagate
-        # as confidence. See `substrate.confidence`.
+        # Invocation stack for confidence propagation and lineage. Each
+        # frame is a dict {"sub_confidences": [...], "sub_acts": [...]}.
+        # Pushed before an impl runs so the impl's runtime.invoke() calls
+        # deposit their results' confidence and their act identities into
+        # the parent's frame. Frames are NOT pushed for policy-evaluation
+        # invocations; policy results don't propagate as confidence, and a
+        # policy act is a sub-invocation of the runtime's own evaluation
+        # rather than of the parent's implementation (a policy refusal
+        # reaches the parent's entry through `policy_refusals` instead).
+        # See `substrate.confidence` and PP 3.6.1.
         self._invocation_stack: list = []
 
     def register_compiled(self, compiled_form: CompiledForm) -> str:
@@ -156,6 +175,13 @@ class Runtime:
         conventional `confidence` field), it is observed into the
         caller's current invocation frame so that the caller's declared
         propagation function combines it with local sub-confidences.
+
+        The cross-operator act's identity is also deposited in the
+        caller's frame, so the caller's own entry references it as a
+        sub-invocation. The referenced act lives on the target
+        operator's ledger rather than this one; that is what PP 3.6.1
+        describes, the sub-invocation appearing on both operators'
+        ledgers and joinable across them by reference.
         """
         if self.cooperative_substrate is None:
             raise RuntimeError(
@@ -164,6 +190,14 @@ class Runtime:
             )
         target = self.cooperative_substrate.operator(target_operator_id)
         result = target.runtime.invoke(source_unit_id, inputs, invoking_credential_id)
+        # Cross-operator lineage. The callee ran on another Runtime with its
+        # own invocation stack, so the reference is deposited here rather
+        # than by the callee. Recorded for refusals as well as permits. A
+        # target that resolves to this same runtime has already deposited
+        # the reference itself; depositing again would record the one
+        # sub-invocation twice.
+        if target.runtime is not self and self._invocation_stack:
+            self._invocation_stack[-1]["sub_acts"].append(result.act_id)
         # Cross-operator confidence observation. The caller's frame (if any)
         # collects the sub-confidence so its propagation function applies.
         if isinstance(result, Permit) and self._invocation_stack:
@@ -204,6 +238,39 @@ class Runtime:
         invocation. Impls never set this; the default for impl-context
         invocations is True. See `substrate.confidence` for the propagation
         mechanism.
+
+        This method is the lineage boundary. The frame belonging to the act
+        whose implementation is invoking us is captured before the pipeline
+        runs and before any frame of our own is pushed; whatever verdict the
+        pipeline reaches, its act identity is deposited there. That is what
+        lets the parent's own entry record its direct sub-invocations
+        (PP 3.6.1). A structural error raises instead of returning a
+        verdict, and so deposits nothing: no act was committed to reference.
+        """
+        caller_frame = (
+            self._invocation_stack[-1]
+            if _observe_for_propagation and self._invocation_stack
+            else None
+        )
+        result = self._invoke(
+            source_unit_id, inputs, invoking_credential_id, _observe_for_propagation,
+        )
+        if caller_frame is not None:
+            caller_frame["sub_acts"].append(result.act_id)
+        return result
+
+    def _invoke(
+        self,
+        source_unit_id: str,
+        inputs: dict,
+        invoking_credential_id: str,
+        _observe_for_propagation: bool = True,
+    ):
+        """The invocation pipeline itself. Call invoke(), not this.
+
+        Separated from invoke() so that every return path, permit or
+        refusal, passes through one place where the act's identity is
+        deposited in the calling act's frame.
         """
         # 1. Look up the compiled form for this source unit.
         compiled_id = self._compiled_by_source.get(source_unit_id)
@@ -306,10 +373,25 @@ class Runtime:
 
         # 5. Evaluate every policy. Each policy is a functional unit; we
         #    invoke it through this same runtime path. Each policy
-        #    invocation produces its own Act on the ledger. If any policy
-        #    returns Refuse, the parent refuses with the policy's
-        #    rationale and the policy's act_id, so the audit trail can
-        #    follow back to the refusing policy.
+        #    invocation produces its own Act on the ledger.
+        #
+        #    Evaluation does not stop at the first refusal. Several
+        #    policies may each refuse the same act, and compiled_form.policies
+        #    is sorted by content identity, so the first refusal reached is
+        #    selected by SHA ordering: arbitrary with respect to the
+        #    authority, specificity or scale of the policies it orders. The
+        #    loop therefore evaluates all of them and records every refusal
+        #    on the refused act, so the attribution an auditor reads off the
+        #    ledger is complete rather than incidental (PP 3.3, PP 4.10).
+        #    The rationale string keeps its existing shape and names one
+        #    refusal; `policy_refusals` on the act carries the whole set.
+        #
+        #    The cost falls on the refusal path only. A permitted act
+        #    already evaluated every policy; a refused act now evaluates
+        #    the policies after the first refuser too, so a unit with n
+        #    in-scope policies commits up to n policy acts rather than
+        #    stopping at the refusing one.
+        policy_refusals: list = []
         for policy_cid in compiled_form.policies:
             if policy_cid == compiled_form.source_unit:
                 # Defensive: a unit that has itself as a policy would
@@ -323,11 +405,19 @@ class Runtime:
                 _observe_for_propagation=False,
             )
             if isinstance(policy_result, Refuse):
-                return self._refuse(
-                    compiled_form, inputs, invoking_credential_id,
-                    f"policy {policy_cid} refused: {policy_result.rationale} "
-                    f"(policy act: {policy_result.act_id})",
-                )
+                policy_refusals.append(PolicyRefusal(
+                    policy_id=policy_cid,
+                    rationale=policy_result.rationale,
+                    act_id=policy_result.act_id,
+                ))
+        if policy_refusals:
+            first = policy_refusals[0]
+            return self._refuse(
+                compiled_form, inputs, invoking_credential_id,
+                f"policy {first.policy_id} refused: {first.rationale} "
+                f"(policy act: {first.act_id})",
+                policy_refusals=tuple(policy_refusals),
+            )
 
         # 5. Execute the unit. The implementation is referenced by content_id
         #    from the source unit; we fetch it from the code archive and
@@ -387,20 +477,26 @@ class Runtime:
                     compiled_form, inputs, invoking_credential_id, gate_rationale,
                 )
 
-        # 5c. Push a confidence-propagation frame for this impl's
-        #     sub-invocations. Skipped for policy-context invocations
-        #     (policies don't propagate as confidence).
+        # 5c. Push a frame for this impl's sub-invocations. It collects
+        #     their confidences, for propagation, and their act identities,
+        #     for lineage. Skipped for policy-context invocations (policies
+        #     don't propagate as confidence, and their acts are not the
+        #     parent implementation's sub-invocations).
         if _observe_for_propagation:
-            self._invocation_stack.append({"sub_confidences": []})
+            self._invocation_stack.append({"sub_confidences": [], "sub_acts": []})
         try:
             try:
                 output = impl_callable(inputs, self, invoking_credential_id)
             except Exception as exc:
+                # The impl may have invoked sub-units before raising. Those
+                # acts are on the ledger and belong to this act's lineage,
+                # so the refusal records them (PP 3.6.1).
                 return self._refuse(
                     compiled_form,
                     inputs,
                     invoking_credential_id,
                     f"implementation raised: {type(exc).__name__}: {exc}",
+                    sub_invocations=self._current_sub_invocations(_observe_for_propagation),
                 )
 
             # 5d. Apply scalar confidence aggregation if the unit declared
@@ -441,8 +537,12 @@ class Runtime:
             if drift_criteria:
                 self.drift_monitor.observe(compiled_form.source_unit, output, drift_criteria)
 
-            # 6. Commit a permit.
-            result = self._permit(compiled_form, inputs, invoking_credential_id, output)
+            # 6. Commit a permit, recording the acts this impl caused.
+            #    Read before the frame is popped in the finally clause.
+            result = self._permit(
+                compiled_form, inputs, invoking_credential_id, output,
+                sub_invocations=self._current_sub_invocations(_observe_for_propagation),
+            )
         finally:
             if _observe_for_propagation:
                 self._invocation_stack.pop()
@@ -465,7 +565,19 @@ class Runtime:
                     self._invocation_stack[-1]["sub_confidences"].append(conf)
         return result
 
-    def _permit(self, compiled_form, inputs, credential_id, output):
+    def _current_sub_invocations(self, _observe_for_propagation: bool) -> tuple:
+        """The act identities collected in this act's own frame, in order.
+
+        Returns an empty tuple when no frame of our own was pushed, which
+        is the policy-evaluation case: reading the top of the stack then
+        would read the calling implementation's frame and attribute its
+        sub-invocations to the policy act.
+        """
+        if not _observe_for_propagation or not self._invocation_stack:
+            return ()
+        return tuple(self._invocation_stack[-1]["sub_acts"])
+
+    def _permit(self, compiled_form, inputs, credential_id, output, sub_invocations=()):
         act = Act(
             previous_act_id=self.ledger.latest(),
             compiled_form_id=compiled_form.content_id(),
@@ -473,6 +585,7 @@ class Runtime:
             inputs=inputs,
             verdict="permit",
             output_or_rationale=output,
+            sub_invocations=tuple(sub_invocations),
         )
         self.ledger.append(act)
         return Permit(output=output, act_id=act.content_id())
@@ -513,7 +626,15 @@ class Runtime:
         self._impl_cache[implementation_ref] = callable_
         return callable_
 
-    def _refuse(self, compiled_form, inputs, credential_id, rationale):
+    def _refuse(
+        self,
+        compiled_form,
+        inputs,
+        credential_id,
+        rationale,
+        sub_invocations=(),
+        policy_refusals=(),
+    ):
         act = Act(
             previous_act_id=self.ledger.latest(),
             compiled_form_id=compiled_form.content_id(),
@@ -521,6 +642,8 @@ class Runtime:
             inputs=inputs,
             verdict="refuse",
             output_or_rationale=rationale,
+            sub_invocations=tuple(sub_invocations),
+            policy_refusals=tuple(policy_refusals),
         )
         self.ledger.append(act)
         return Refuse(rationale=rationale, act_id=act.content_id())
