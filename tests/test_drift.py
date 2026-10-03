@@ -1,3 +1,4 @@
+import pytest
 """Tests for drift detection of behaviour-characterised units.
 
 A behaviour-characterised unit declares `drift_criteria` in its spec.
@@ -16,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from substrate.archives import CodeArchive, CredentialsArchive
 from substrate.compile import compile_unit
-from substrate.drift import DriftMonitor
+from substrate.drift import DriftCriterionError, validate_drift_criteria, DriftMonitor
 from substrate.federation import LocalCustodian
 from substrate.implementations import python_implementation
 from substrate.ledger import FederatedLedger
@@ -224,3 +225,47 @@ def test_drifted_unit_refuses_with_rationale_naming_the_criterion():
     assert isinstance(result, Refuse)
     assert "rate_in" in result.rationale
     assert "verdict" in result.rationale
+
+
+# =============================================================================
+# A declared criterion this runtime cannot evaluate is refused at compilation
+# =============================================================================
+
+def test_a_known_criterion_type_missing_its_field_is_refused():
+    """The runtime's parser returns "satisfied" for a criterion it cannot
+    evaluate, so a unit declaring `mean_in` with a mistyped field key would be
+    admitted presenting as monitored and never be monitored. That is silence
+    wearing a declaration's clothes, which PP 3.4 refuses.
+
+    Validation happens at compilation, where the unit is still refusable."""
+    for criteria in (
+        [{"type": "mean_in", "bound": [0.8, 1.5]}],
+        [{"type": "mean_in", "feild": "confidence", "bound": [0.8, 1.5]}],
+        [{"type": "rate_in", "bound": [0.0, 0.1]}],
+    ):
+        with pytest.raises(DriftCriterionError):
+            validate_drift_criteria(criteria)
+
+
+def test_a_malformed_bound_or_window_is_refused():
+    for criteria in (
+        [{"type": "mean_in", "field": "c", "bound": "wide"}],
+        [{"type": "mean_in", "field": "c", "bound": [1.5, 0.8]}],
+        [{"type": "mean_in", "field": "c", "bound": [0, 1], "window": 0}],
+        [{"type": "mean_in", "field": "c", "bound": [0, 1], "window": True}],
+    ):
+        with pytest.raises(DriftCriterionError):
+            validate_drift_criteria(criteria)
+    with pytest.raises(DriftCriterionError):
+        validate_drift_criteria({"type": "mean_in"})
+
+
+def test_an_unknown_criterion_type_is_still_admitted():
+    """Forward compatibility is deliberate and is preserved: a unit may
+    declare a criterion type this runtime does not know, and the runtime does
+    not enforce it. What is refused is a criterion of a type the runtime DOES
+    know whose declaration it cannot evaluate."""
+    validate_drift_criteria([{"type": "experimental_criterion", "anything": 1}])
+    validate_drift_criteria([{"type": "mean_in", "field": "c", "bound": [0.8, 1.5]}])
+    validate_drift_criteria(None)
+    validate_drift_criteria([])

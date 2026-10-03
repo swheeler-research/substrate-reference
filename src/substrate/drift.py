@@ -39,6 +39,8 @@ observations.
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class UnitDrifted(Exception):
     """A behaviour-characterised unit has been observed leaving its
@@ -169,6 +171,67 @@ def _evaluate_criterion(criterion: dict, history: list):
 
     # Unknown criterion type: skip (not enforced).
     return None
+
+
+class DriftCriterionError(Exception):
+    """A declared drift criterion of a known type is malformed.
+
+    Raised at compilation, not at runtime. An unknown criterion type is
+    deliberately NOT an error: the runtime's parsing is permissive so a unit
+    may declare an experimental type without breaking compilation, and only
+    known types are enforced. What is an error is a criterion of a type this
+    runtime DOES know, whose declaration it cannot evaluate: a `mean_in` with
+    no field, or a bound that is not an ordered pair. Such a criterion is
+    silently unenforceable, so a unit carrying one would be admitted
+    presenting as monitored while never being monitored. PP 3.4's rule is that
+    silence on a declared governance dimension refuses rather than permits,
+    and an unevaluable declaration is silence wearing a declaration's clothes.
+    """
+
+
+_KNOWN_CRITERION_TYPES = ("mean_in", "rate_in")
+
+
+def validate_drift_criteria(criteria: Any) -> None:
+    """Validate a unit's declared `drift_criteria` at compilation.
+
+    An absent or empty declaration is valid: a unit that declares no drift
+    criteria is not monitored, and says so. A declaration that is not a list
+    of dicts is invalid. A criterion of a KNOWN type must carry the fields
+    that type needs, so that it can actually be evaluated. A criterion of an
+    unknown type passes, by the same forward-compatibility rule the runtime
+    applies; it simply will not be enforced by this runtime.
+    """
+    if criteria is None:
+        return
+    if not isinstance(criteria, (list, tuple)):
+        raise DriftCriterionError(
+            f"drift_criteria must be a list; got {type(criteria).__name__}"
+        )
+    for index, criterion in enumerate(criteria):
+        if not isinstance(criterion, dict):
+            raise DriftCriterionError(
+                f"drift criterion {index} must be a dict; got {type(criterion).__name__}"
+            )
+        ctype = criterion.get("type")
+        if ctype not in _KNOWN_CRITERION_TYPES:
+            continue
+        if criterion.get("field") is None:
+            raise DriftCriterionError(
+                f"drift criterion {index} of type {ctype!r} declares no field, "
+                f"so it can never be evaluated"
+            )
+        if not _valid_bound(criterion.get("bound")):
+            raise DriftCriterionError(
+                f"drift criterion {index} of type {ctype!r} declares a malformed "
+                f"bound {criterion.get('bound')!r}; expected an ordered pair of numbers"
+            )
+        window = criterion.get("window")
+        if window is not None and (not isinstance(window, int) or isinstance(window, bool) or window <= 0):
+            raise DriftCriterionError(
+                f"drift criterion {index} declares a window of {window!r}; "
+                f"expected a positive integer"
+            )
 
 
 def _valid_bound(bound) -> bool:

@@ -51,6 +51,7 @@ from substrate.confidence import (
     validate_confidence_gate,
     validate_confidence_spec,
 )
+from substrate.drift import DriftCriterionError, validate_drift_criteria
 from substrate.contracts import TypeMismatch, check_satisfiable, parse_constraint
 from substrate.federation import LocalCustodian, WitnessRequest
 from substrate.primitives import FunctionalUnit, content_hash, _make_jsonable
@@ -221,6 +222,18 @@ def compile_unit(
         except ConfidenceSpecError as exc:
             raise CompilationRefused(
                 f"unit {unit.name} ({source_cid[:12]}) confidence spec invalid: {exc}"
+            ) from exc
+        # 3d. Drift criteria well-formedness. A criterion of a type this
+        #     runtime knows must carry the fields that type needs; otherwise
+        #     the unit is admitted presenting as monitored and is never
+        #     monitored, because the runtime's parser returns "satisfied" for
+        #     a criterion it cannot evaluate. An unknown criterion type still
+        #     passes, preserving the forward compatibility drift.py documents.
+        try:
+            validate_drift_criteria(unit.spec.get("drift_criteria"))
+        except DriftCriterionError as exc:
+            raise CompilationRefused(
+                f"unit {unit.name} ({source_cid[:12]}) drift criteria invalid: {exc}"
             ) from exc
 
     # 4. Execution-optimisation artefacts (Phase 1: all stubbed None).
