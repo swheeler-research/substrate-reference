@@ -82,23 +82,75 @@ def implementation(inputs, runtime, invoking_credential_id):
 # officer). Escalation as a structural credential, not a procedure.
 POSITION_LIMIT_POLICY = """
 def implementation(inputs, runtime, invoking_credential_id):
+    # The policy resolves the escalation credential through the runtime. It
+    # does not read a name the caller supplied.
+    #
+    # The earlier version of this policy tested whether a caller-supplied
+    # string began with "senior_risk_officer", while this demonstration's own
+    # output asserted that the trader cannot self-issue the escalation. The
+    # trader supplied the string, so the trader could. An invoker must not be
+    # able to assert about itself the thing being checked.
     notional = inputs.get("position_notional_million_usd", 0.0)
     declared_limit = inputs.get("declared_desk_limit_million_usd", 0.0)
-    escalation_name = inputs.get("escalation_credential_name", "")
+    escalation_id = inputs.get("escalation_credential_id", "")
     if notional <= declared_limit:
         return {}
-    if not escalation_name:
+    if not escalation_id:
         raise Exception(
             "position_limit_policy refuses: notional " + str(notional) +
             "m USD exceeds declared desk limit " + str(declared_limit) +
             "m USD with no escalation credential declared"
         )
-    if not escalation_name.startswith("senior_risk_officer"):
+
+    context = runtime.invocation_context()
+    escalation = runtime.resolve_credential(escalation_id)
+
+    # Does the credential exist, and is the invalidation surface content for
+    # it to be relied on? A revoked escalation is not an escalation.
+    if not escalation.valid:
         raise Exception(
-            "position_limit_policy refuses: escalation credential '" +
-            escalation_name + "' is not recognised as a senior-risk " +
-            "escalation principal"
+            "position_limit_policy refuses: escalation credential " +
+            escalation_id[:12] + " is " + escalation.status
         )
+
+    # Is it the escalation authority, by the principal recorded in its own
+    # content and therefore in its content identity? This cannot be satisfied
+    # by relabelling: a credential with a different principal is a different
+    # credential with a different identity.
+    if not escalation.bears("governance:senior_risk_escalation"):
+        raise Exception(
+            "position_limit_policy refuses: credential " + escalation_id[:12] +
+            " does not bear the senior-risk escalation authority"
+        )
+
+    # Does it derive from this bank's constitutional source? An escalation
+    # credential issued under some other authority chain does not bind here.
+    jpm_root = inputs.get("operator_root_credential_id", "")
+    if jpm_root and not escalation.descends_from(jpm_root):
+        raise Exception(
+            "position_limit_policy refuses: escalation credential " +
+            escalation_id[:12] + " does not derive from the operator's "
+            "constitutional source"
+        )
+
+    # Did the invoker present its own credential as the escalation? This is
+    # the self-issue case the demonstration claims is impossible, and it is
+    # now impossible because the check is performed rather than asserted.
+    if escalation_id == invoking_credential_id:
+        raise Exception(
+            "position_limit_policy refuses: the invoking credential cannot "
+            "be its own escalation"
+        )
+
+    # Is the invoker in the escalation credential's own ancestry? An invoker
+    # that issued the escalation has self-issued it by a longer route.
+    if context is not None and invoking_credential_id in escalation.authority_chain:
+        if invoking_credential_id != jpm_root:
+            raise Exception(
+                "position_limit_policy refuses: the invoking credential is in "
+                "the escalation credential's authority chain, so the "
+                "escalation is self-issued"
+            )
     return {}
 """
 
@@ -170,7 +222,7 @@ def implementation(inputs, runtime, invoking_credential_id):
         "var_model_act_id": var_result.act_id,
         "trade_clearance_act_id": clearance_result.act_id,
         "authorised_by": invoking_credential_id,
-        "escalation_credential_name": inputs.get("escalation_credential_name", ""),
+        "escalation_credential_id": inputs.get("escalation_credential_id", ""),
     }
 """
 
@@ -276,7 +328,7 @@ def implementation(inputs, runtime, invoking_credential_id):
                 "predicted_var_million_usd": out.get("predicted_var_million_usd"),
                 "propagated_confidence": out.get("confidence"),
                 "position_authorised": out.get("position_authorised"),
-                "escalation": out.get("escalation_credential_name"),
+                "escalation": out.get("escalation_credential_id"),
                 "rationale": out.get("rationale"),
             })
         else:

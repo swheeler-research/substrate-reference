@@ -102,6 +102,23 @@ class Act:
             policy evaluation it holds the complete set;
             `output_or_rationale` continues to carry the summary
             rationale of one of them, unchanged in shape.
+        governance_tick: the value of the substrate's governance clock at
+            this act, a monotone counter advancing once per act. This is
+            the clock the invalidation surface's bounded-latency property
+            is measured in: a form affected at tick t is non-invocable by
+            tick t + Delta. 0 for an act committed by a runtime with no
+            clock, which is how acts constructed directly in tests read.
+        recorded_time: the operator's wall-clock reading at this act, as an
+            ISO-8601 instant in UTC. What an inquiry asks for, and what a
+            latency measurement in seconds needs. Not monotone across
+            processes and not comparable across operators without a declared
+            skew bound. "" for an act committed by a runtime with no clock.
+
+    Both clock fields are inputs to the act's content identity. An act is an
+    event rather than a compiled artefact, so covering its time breaks
+    nothing: the invariance the compiled form needs, that an independent
+    recompilation at any later time converges on the same identity, is a
+    property of compilation and not of the ledger.
     """
     previous_act_id: str
     compiled_form_id: str
@@ -112,6 +129,8 @@ class Act:
     kind: str = "invocation"
     sub_invocations: tuple = ()
     policy_refusals: tuple = ()
+    governance_tick: int = 0
+    recorded_time: str = ""
 
     def content_id(self) -> str:
         return content_hash({
@@ -125,6 +144,8 @@ class Act:
             "output_or_rationale": _make_jsonable(self.output_or_rationale),
             "sub_invocations": list(self.sub_invocations),
             "policy_refusals": _make_jsonable(self.policy_refusals),
+            "governance_tick": self.governance_tick,
+            "recorded_time": self.recorded_time,
         })
 
 

@@ -122,6 +122,16 @@ def build_scene():
     court_order_1_cid = creds.put(court_order_1)
     court_order_2_cid = creds.put(court_order_2)
 
+    # A warrant the agency issues for itself, bearing the same shape as a
+    # court order and deriving from the analyst rather than from the
+    # constitutional source the judiciary is anchored at. The policy refuses
+    # it. Exhibiting the attempt is what makes the oversight claim worth
+    # anything: the architecture's interest is in what an agency cannot do to
+    # its own authorisation record.
+    self_issued_warrant = _cred("court_order_2024_9999",
+                                parent_cids=(analyst_a.content_id(),))
+    self_issued_warrant_cid = creds.put(self_issued_warrant)
+
     # Operators.
     agency_a = Operator(name="AgencyA", root_credential=agency_a_root,
                         substrate=_make_substrate("agency_a_custodian", code, creds))
@@ -203,6 +213,7 @@ def build_scene():
         spec={"inputs": {"target_subject": "str", "target_jurisdiction": "str",
                          "collecting_agency": "str", "query_id": "str",
                          "justification_credential_id": "str",
+                         "authorising_authority_credential_id": "str",
                          "cooperative_authorisation_credential": "str"}},
         implementation_ref=query_impl_cid,
         credential_refs=(constitutional_cid, agency_a_root_cid, agency_b_root_cid,
@@ -263,6 +274,9 @@ def build_scene():
         "analyst_b_cid": analyst_b_cid,
         "oversight_chair_cid": oversight_chair_cid,
         "court_order_1_cid": court_order_1_cid,
+        "self_issued_warrant_cid": self_issued_warrant_cid,
+        "agency_a_root_cid": agency_a_root_cid,
+        "constitutional_cid": constitutional_cid,
         "court_order_2_cid": court_order_2_cid,
         "bilateral_coop_cid": bilateral_coop_cid,
         "query_unit_a": query_unit_a,
@@ -297,6 +311,7 @@ def _try_query(scene, label, *,
             "collecting_agency": collecting_agency,
             "query_id": query_id,
             "justification_credential_id": justification_credential_id,
+            "authorising_authority_credential_id": scene["constitutional_cid"],
             "cooperative_authorisation_credential": cooperative_authorisation_credential,
         },
         scene["analyst_a_cid"],
@@ -404,6 +419,31 @@ def main() -> int:
                collecting_agency="agency_a",
                justification_credential_id="",  # empty
                query_id="q_005")
+
+    _header("Query 5a: query with a warrant the agency wrote for itself")
+    _try_query(scene, "query 5a (self-issued warrant):",
+               target_subject="subject_002", target_jurisdiction="agency_b",
+               collecting_agency="agency_a",
+               justification_credential_id=scene["self_issued_warrant_cid"],
+               query_id="q_005a")
+    print(f"  Refused. The credential is named like a court order and carries the")
+    print(f"  same shape, and the policy resolves it rather than reading its name.")
+    print(f"  The querying analyst is in its authority chain, so the agency")
+    print(f"  authorised itself. Before the policy resolved anything, a non-empty")
+    print(f"  string satisfied it, and an analyst who must declare a warrant and")
+    print(f"  may declare any value has not been constrained at all.")
+
+    _header("Query 5b: query citing a justification that has been revoked")
+    scene["agency_a"].revoke_credential(
+        scene["court_order_2_cid"],
+        authorising_credential_id=scene["agency_a_root_cid"])
+    _try_query(scene, "query 5b (revoked court order):",
+               target_subject="subject_002", target_jurisdiction="agency_b",
+               collecting_agency="agency_a",
+               justification_credential_id=scene["court_order_2_cid"],
+               query_id="q_005b")
+    print(f"  Refused. A warrant that has been withdrawn authorises nothing, and")
+    print(f"  the policy reads the invalidation surface to establish it.")
 
     _header("OversightCommittee investigates AgencyA cross-operator")
     print()

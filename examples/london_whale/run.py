@@ -114,7 +114,7 @@ def build_scene():
         contract_pattern=ContractPattern.SPECIFICATION_BOUNDED,
         spec={
             "name": "position_limit_policy",
-            "refuses_when": "notional > desk_limit AND no senior-risk escalation declared",
+            "refuses_when": "notional > desk_limit AND no valid senior-risk escalation credential resolves",
         },
         implementation_ref=limit_impl_cid,
         credential_refs=(root_cid, jpm_root_cid),
@@ -219,7 +219,8 @@ def build_scene():
                 "declared_desk_limit_million_usd": "float",
                 "risk_factor": "float",
                 "actual_realised_volatility_million_usd": "float",
-                "escalation_credential_name": "str",
+                "escalation_credential_id": "str",
+                "operator_root_credential_id": "str",
             },
             "outputs": {
                 "position_authorised": "bool",
@@ -313,6 +314,47 @@ def build_scene():
         "occ_inspector", parent_cids=(occ_root_cid,),
         authorities=("invoke:any", "cross_operator:audit"),
     )
+    # The senior-risk escalation authority. This is what the position limit
+    # policy resolves and tests, and it is why the trader cannot self-issue:
+    # the principal is part of the credential's content and therefore of its
+    # content identity, and the credential derives from JPMorgan's
+    # constitutional source rather than from the trading desk.
+    senior_risk_escalation = CredentialUnit(
+        name="senior_risk_escalation",
+        transfer=TransferDiscipline.DELEGATED,
+        principal="governance:senior_risk_escalation",
+        authorities=("authorise:position_above_desk_limit",),
+        credential_refs=(jpm_root_cid,),
+    )
+    senior_risk_escalation_cid = creds.put(senior_risk_escalation)
+
+    # A second escalation authority, identical in every respect but its name,
+    # issued so that the revocation case can be exhibited. Revocation is
+    # permanent in this architecture, so a demonstration that revoked the
+    # escalation it later relies on could not also show the escalation working.
+    retired_escalation = CredentialUnit(
+        name="senior_risk_escalation_retired",
+        transfer=TransferDiscipline.DELEGATED,
+        principal="governance:senior_risk_escalation",
+        authorities=("authorise:position_above_desk_limit",),
+        credential_refs=(jpm_root_cid,),
+    )
+    retired_escalation_cid = creds.put(retired_escalation)
+
+    # A credential the desk issues for itself, bearing the same name and the
+    # same claimed authority, derived from the trader rather than from the
+    # bank's constitutional source. The policy refuses it. Keeping it in the
+    # demonstration is the point: the claim that the trader cannot self-issue
+    # is only worth making if the attempt is exhibited and refused.
+    desk_self_escalation = CredentialUnit(
+        name="senior_risk_escalation",
+        transfer=TransferDiscipline.DELEGATED,
+        principal="governance:senior_risk_escalation",
+        authorities=("authorise:position_above_desk_limit",),
+        credential_refs=(desk_trader.content_id(),),
+    )
+    desk_self_escalation_cid = creds.put(desk_self_escalation)
+
     desk_trader_cid = creds.put(desk_trader)
     risk_officer_cid = creds.put(risk_officer)
     senior_risk_officer_cid = creds.put(senior_risk_officer)
@@ -353,6 +395,10 @@ def build_scene():
         "desk_trader_cid": desk_trader_cid,
         "risk_officer_cid": risk_officer_cid,
         "senior_risk_officer_cid": senior_risk_officer_cid,
+        "senior_risk_escalation_cid": senior_risk_escalation_cid,
+        "desk_self_escalation_cid": desk_self_escalation_cid,
+        "retired_escalation_cid": retired_escalation_cid,
+        "jpm_root_cid": jpm_root_cid,
         "occ_inspector_cid": occ_inspector_cid,
     }
 
@@ -365,7 +411,7 @@ def _header(title):
 
 
 def _authorise(scene, var_unit_id, risk_factor, notional, desk_limit,
-               actual_vol, escalation_credential_name, invoking_cid, label,
+               actual_vol, escalation_credential_id, invoking_cid, label,
                position_id=""):
     jpm = scene["jpm"]
     r = jpm.runtime.invoke(
@@ -377,7 +423,8 @@ def _authorise(scene, var_unit_id, risk_factor, notional, desk_limit,
             "declared_desk_limit_million_usd": desk_limit,
             "risk_factor": risk_factor,
             "actual_realised_volatility_million_usd": actual_vol,
-            "escalation_credential_name": escalation_credential_name,
+            "escalation_credential_id": escalation_credential_id,
+            "operator_root_credential_id": scene["jpm_root_cid"],
             "position_id": position_id,
         },
         invoking_cid,
@@ -389,8 +436,8 @@ def _authorise(scene, var_unit_id, risk_factor, notional, desk_limit,
         if out.get("position_authorised"):
             print(f"  {label}: PERMIT  notional={notional}m  "
                   f"predicted_VaR={out.get('predicted_var_million_usd'):.2f}m  {conf_str}")
-            if out.get("escalation_credential_name"):
-                print(f"      escalation_recorded: {out['escalation_credential_name']}")
+            if out.get("escalation_credential_id"):
+                print(f"      escalation_recorded: {out['escalation_credential_id'][:12]}")
         else:
             print(f"  {label}: not_authorised  rationale={out.get('rationale','')[:160]}  {conf_str}")
         return out
@@ -438,7 +485,7 @@ def main() -> int:
         var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
         notional=500.0, desk_limit=1000.0,
         actual_vol=20.0,
-        escalation_credential_name="",
+        escalation_credential_id="",
         invoking_cid=scene["desk_trader_cid"],
         label="desk_trader: position 500m under v1",
     )
@@ -452,7 +499,7 @@ def main() -> int:
         var_unit_id=scene["var_v2_cid"], risk_factor=0.015,
         notional=500.0, desk_limit=1000.0,
         actual_vol=20.0,
-        escalation_credential_name="",
+        escalation_credential_id="",
         invoking_cid=scene["desk_trader_cid"],
         label="desk_trader: position 500m under v2",
     )
@@ -471,7 +518,7 @@ def main() -> int:
             var_unit_id=scene["var_v2_cid"], risk_factor=0.015,
             notional=500.0, desk_limit=1000.0,
             actual_vol=av,
-            escalation_credential_name="",
+            escalation_credential_id="",
             invoking_cid=scene["desk_trader_cid"],
             label=f"desk_trader: trade {i + 1} (actual_vol={av}m)",
         )
@@ -485,11 +532,69 @@ def main() -> int:
         var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
         notional=1500.0, desk_limit=1000.0,
         actual_vol=60.0,
-        escalation_credential_name="",
+        escalation_credential_id="",
         invoking_cid=scene["desk_trader_cid"],
         label="desk_trader: position 1500m (over limit, no escalation)",
     )
-    print(f"  position_limit_policy refuses; trader cannot self-issue the escalation.")
+    print(f"  position_limit_policy refuses: no escalation credential declared.")
+
+    _header("Round 4a: the trader presents its own credential as the escalation")
+    _authorise(
+        scene,
+        var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
+        notional=1500.0, desk_limit=1000.0,
+        actual_vol=60.0,
+        escalation_credential_id=scene["desk_trader_cid"],
+        invoking_cid=scene["desk_trader_cid"],
+        label="desk_trader: position 1500m (escalation = own credential)",
+    )
+    print(f"  Refused: the credential does not bear the escalation authority.")
+
+    _header("Round 4b: the trader issues a credential named for the authority")
+    _authorise(
+        scene,
+        var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
+        notional=1500.0, desk_limit=1000.0,
+        actual_vol=60.0,
+        escalation_credential_id=scene["desk_self_escalation_cid"],
+        invoking_cid=scene["desk_trader_cid"],
+        label="desk_trader: position 1500m (self-issued escalation credential)",
+    )
+    print(f"  Refused, and note which check does it. This credential carries the")
+    print(f"  same name and the same principal as the genuine authority, and it")
+    print(f"  does derive from the bank's constitutional source, because the")
+    print(f"  trader derives from it too. Deriving from the constitutional source")
+    print(f"  is necessary and not sufficient, and no test of the credential's")
+    print(f"  own content separates the two. What refuses is that the invoker")
+    print(f"  appears in the escalation credential's authority chain, so the")
+    print(f"  invoker issued what it presents.")
+    print()
+    print(f"  What this round does not do is discriminate the fix. It refuses")
+    print(f"  under the policy this one replaced as well, because the content")
+    print(f"  identity it passes does not begin with the string that policy")
+    print(f"  tested for. That is an accident of a hash prefix. The")
+    print(f"  discrimination is in tests/test_invocation_context.py, which")
+    print(f"  builds the authority and the forgery with identical names and")
+    print(f"  principals and shows that chain resolution is the only test that")
+    print(f"  separates them.")
+
+    _header("Round 4c: the escalation is revoked, then presented")
+    jpm = scene["jpm"]
+    jpm.revoke_credential(scene["retired_escalation_cid"],
+                          authorising_credential_id=scene["jpm_root_cid"])
+    _authorise(
+        scene,
+        var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
+        notional=1500.0, desk_limit=1000.0,
+        actual_vol=60.0,
+        escalation_credential_id=scene["retired_escalation_cid"],
+        invoking_cid=scene["senior_risk_officer_cid"],
+        label="senior_risk_officer: position 1500m (escalation revoked)",
+    )
+    print(f"  Refused: a revoked escalation is not an escalation. The policy")
+    print(f"  reads the invalidation surface, not a string. Revocation here is")
+    print(f"  permanent, so this uses a second escalation authority issued for")
+    print(f"  the purpose rather than the one Round 5 relies on.")
 
     _header("Round 5: senior_risk_officer authorises the escalation")
     _authorise(
@@ -497,7 +602,7 @@ def main() -> int:
         var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
         notional=1500.0, desk_limit=1000.0,
         actual_vol=60.0,
-        escalation_credential_name="senior_risk_officer",
+        escalation_credential_id=scene["senior_risk_escalation_cid"],
         invoking_cid=scene["senior_risk_officer_cid"],
         label="senior_risk_officer: escalated position 1500m",
     )
@@ -531,7 +636,7 @@ def main() -> int:
             var_unit_id=scene["var_v2_cid"], risk_factor=0.015,
             notional=500.0, desk_limit=1000.0,
             actual_vol=7.5,
-            escalation_credential_name="",
+            escalation_credential_id="",
             invoking_cid=scene["desk_trader_cid"],
             label=f"position {position_id}",
             position_id=position_id,
@@ -574,7 +679,7 @@ def main() -> int:
         var_unit_id=scene["var_v2_cid"], risk_factor=0.015,
         notional=500.0, desk_limit=1000.0,
         actual_vol=7.5,
-        escalation_credential_name="",
+        escalation_credential_id="",
         invoking_cid=scene["desk_trader_cid"],
         label="post-deprecation attempt",
         position_id="pos_post",

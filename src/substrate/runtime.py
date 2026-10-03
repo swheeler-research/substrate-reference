@@ -75,6 +75,7 @@ from substrate.confidence import (
     evaluate_confidence_gate,
     propagate,
 )
+from substrate.clock import GovernanceClock
 from substrate.drift import DriftMonitor
 from substrate.federation import verify_compiled_form
 from substrate.ledger import Act, FederatedLedger, PolicyRefusal
@@ -95,6 +96,76 @@ class Refuse:
     act_id: str
 
 
+# =============================================================================
+# The invocation context
+# =============================================================================
+
+@dataclass(frozen=True)
+class ResolvedCredential:
+    """A credential resolved through the runtime, with its status established.
+
+    A policy that needs to know something about authority must not take the
+    invoker's word for it. This is what the runtime hands back instead: the
+    credential as the archive holds it, its authority chain as resolution
+    walks it, and its status as the invalidation surface currently reports it.
+
+    `valid` is False if the credential is absent from the archive, revoked,
+    superseded or deprecated. A policy that reads any other field without
+    checking `valid` has reintroduced the defect this type exists to close.
+    """
+
+    credential_id: str
+    credential: Any
+    authority_chain: tuple
+    valid: bool
+    status: str
+
+    def bears(self, principal: str) -> bool:
+        """True if this credential is valid and names exactly this principal.
+
+        The principal is part of the credential's content and therefore of
+        its content identity, so a credential whose principal differs is a
+        different credential. That is what makes this test meaningful: it
+        cannot be satisfied by relabelling.
+        """
+        return self.valid and getattr(self.credential, "principal", None) == principal
+
+    def descends_from(self, credential_id: str) -> bool:
+        """True if this credential is valid and derives authority from that one."""
+        return self.valid and credential_id in self.authority_chain
+
+
+@dataclass(frozen=True)
+class InvocationContext:
+    """The four components the architecture says the rolled-up policy
+    evaluates against: the principal invoking the act, the inputs being
+    supplied, the state being operated on, and the temporal context.
+
+    Before this type existed, one of the four was reachable by a policy and
+    it was the one the caller controls. Every substantive policy verdict in
+    the demonstrations was therefore a function of a value the invoker had
+    supplied, which is sound where the input is the thing being governed and
+    is a defect wherever the claim is about identity, authority or
+    authorisation, because those are precisely what an invoker must not be
+    able to assert about itself.
+
+    `principal` is the resolved invoking credential, not its identity string.
+    `state` maps the content identity of each state unit the compiled form
+    references to the unit the archive holds. `governance_tick` and
+    `wall_time` are the act's own clock readings, so a policy that reasons
+    about time reasons about the time of the act it is governing rather than
+    about whenever it happens to run.
+    """
+
+    principal: ResolvedCredential
+    inputs: dict
+    state: dict
+    governance_tick: int
+    wall_time: str
+    compiled_form_id: str
+    target_unit_id: str
+
+
 class Runtime:
     """Coordinates lookup, policy evaluation, execution, and ledger commit.
 
@@ -109,10 +180,18 @@ class Runtime:
         code_archive: CodeArchive,
         credentials_archive: CredentialsArchive,
         ledger: FederatedLedger,
+        clock=None,
     ):
         self.code = code_archive
         self.credentials = credentials_archive
         self.ledger = ledger
+        # The governance clock. Every act records the tick it occurred at and
+        # the operator's wall-clock reading, so the ordering of acts is
+        # substantiated by the chain and their timing is substantiated by the
+        # clock. A demonstration that needs a reproducible ledger passes a
+        # FixedClock, because an act's content identity covers its recorded
+        # time. See `substrate.clock`.
+        self.clock = clock if clock is not None else GovernanceClock()
         # Index: source unit content_id -> compiled form content_id.
         # Populated by register_compiled(); read by invoke().
         self._compiled_by_source: dict = {}
@@ -143,6 +222,11 @@ class Runtime:
         # reaches the parent's entry through `policy_refusals` instead).
         # See `substrate.confidence` and PP 3.6.1.
         self._invocation_stack: list = []
+        # The invocation context of the act currently being evaluated, as a
+        # stack so that a sub-invocation's policies see the sub-invocation's
+        # context and not its parent's. Read by implementations and policies
+        # through `invocation_context()`.
+        self._context_stack: list = []
 
     def register_compiled(self, compiled_form: CompiledForm) -> str:
         """Put a compiled form in the code archive and index it for invoke().
@@ -153,6 +237,79 @@ class Runtime:
         cid = self.code.put(compiled_form)
         self._compiled_by_source[compiled_form.source_unit] = cid
         return cid
+
+    def resolve_credential(self, credential_id: str) -> ResolvedCredential:
+        """Resolve a credential through the archives and establish its status.
+
+        This is the method a policy calls when it needs to know something
+        about authority. It is the whole of the answer to the finding that
+        no policy in the reference implementation resolved anything through
+        the runtime: resolution is possible, nothing required it, and so
+        every policy that spoke about authority spoke about a string the
+        invoker had supplied.
+
+        A credential that is absent, revoked, superseded or deprecated comes
+        back with `valid` False and a `status` naming which. The authority
+        chain is resolved by the same upward walk compilation performs, and
+        is empty when the credential itself does not resolve.
+        """
+        status = "valid"
+        credential = None
+        try:
+            credential = self.credentials.get(credential_id)
+        except CredentialRevoked:
+            status = "revoked"
+        except CredentialSuperseded as exc:
+            status = f"superseded by {exc.successor_cid}"
+        except CredentialDeprecated:
+            status = "deprecated"
+        except KeyError:
+            status = "not found"
+        if credential is None:
+            return ResolvedCredential(
+                credential_id=credential_id, credential=None,
+                authority_chain=(), valid=False, status=status,
+            )
+        return ResolvedCredential(
+            credential_id=credential_id, credential=credential,
+            authority_chain=self.credential_authority_chain(credential_id),
+            valid=True, status=status,
+        )
+
+    def credential_authority_chain(self, credential_id: str) -> tuple:
+        """The credential's ancestry, walked upward to its roots.
+
+        Includes the credential itself. Resolution here uses the compile-time
+        accessor, so revoked and superseded ancestors still appear: the chain
+        is a structural fact about the credential's derivation and does not
+        change when an ancestor's status does. Whether each credential in the
+        chain is presently valid is a separate question, which
+        `resolve_credential` answers for the credential it is given and the
+        runtime's own stage three answers for the compiled form's chain.
+        """
+        seen: list = []
+        frontier = [credential_id]
+        while frontier:
+            cid = frontier.pop()
+            if cid in seen:
+                continue
+            seen.append(cid)
+            try:
+                unit = self.credentials.get_for_compile(cid)
+            except KeyError:
+                continue
+            for parent in getattr(unit, "credential_refs", ()):
+                if parent not in seen:
+                    frontier.append(parent)
+        return tuple(seen)
+
+    def invocation_context(self) -> Optional[InvocationContext]:
+        """The context of the act currently being evaluated, or None.
+
+        Available to a unit's implementation and to every policy evaluated
+        for that act. None outside an invocation.
+        """
+        return self._context_stack[-1] if self._context_stack else None
 
     def invoke_in(
         self,
@@ -379,6 +536,70 @@ class Runtime:
                     f"none reached from invoker)",
                 )
 
+        # 4b. Build the invocation context, so that the policies about to be
+        #     evaluated can reach all four of the components the architecture
+        #     names rather than only the inputs. The principal is resolved
+        #     here, once, rather than left as a string for each policy to
+        #     take on trust. The clock is read without advancing it: the act
+        #     this context belongs to has not been committed yet, and the
+        #     tick it will carry is the next one.
+        #
+        #     Building the context never changes a verdict. Every resolution
+        #     it performs is total: a credential that does not resolve comes
+        #     back invalid rather than raising, and state resolution uses the
+        #     audit accessor, so a deprecated or superseded unit in the
+        #     reference set is still visible to a policy that wants to see it
+        #     and is not an error on the way to building the context. The
+        #     stages that do refuse have already run.
+        context = InvocationContext(
+            principal=self.resolve_credential(invoking_credential_id),
+            inputs=inputs,
+            state=self._resolve_state_refs(compiled_form),
+            governance_tick=self.clock.reading() + 1,
+            wall_time=self.clock.wall(),
+            compiled_form_id=compiled_form.content_id(),
+            target_unit_id=compiled_form.source_unit,
+        )
+        self._context_stack.append(context)
+        try:
+            return self._evaluate_and_execute(
+                compiled_form, inputs, invoking_credential_id,
+                _observe_for_propagation,
+            )
+        finally:
+            self._context_stack.pop()
+
+    def _resolve_state_refs(self, compiled_form) -> dict:
+        """The state units the compiled form references, by content identity.
+
+        This is the architecture's "state being operated on" component of the
+        invocation context. A state unit absent from the archive is omitted
+        rather than raising: the compiled form's reference resolution already
+        established that every reference resolved at compilation, so an
+        absence here is an archive fault and not a policy's business.
+        """
+        resolved: dict = {}
+        try:
+            unit = self.code.get_for_audit(compiled_form.source_unit)
+        except Exception:
+            return resolved
+        for cid in getattr(unit, "state_refs", ()) or ():
+            try:
+                resolved[cid] = self.code.get_for_audit(cid)
+            except Exception:
+                continue
+        return resolved
+
+    def _evaluate_and_execute(
+        self, compiled_form, inputs, invoking_credential_id,
+        _observe_for_propagation,
+    ):
+        """Policy evaluation and execution, inside the invocation context.
+
+        Split out of `_invoke` so the context is pushed and popped in one
+        place and every return path through policy evaluation and execution
+        leaves the stack balanced.
+        """
         # 5. Evaluate every policy. Each policy is a functional unit; we
         #    invoke it through this same runtime path. Each policy
         #    invocation produces its own Act on the ledger.
@@ -587,6 +808,8 @@ class Runtime:
 
     def _permit(self, compiled_form, inputs, credential_id, output, sub_invocations=()):
         act = Act(
+            governance_tick=self.clock.tick(),
+            recorded_time=self.clock.wall(),
             previous_act_id=self.ledger.latest(),
             compiled_form_id=compiled_form.content_id(),
             invoking_credential_id=credential_id,
@@ -644,6 +867,8 @@ class Runtime:
         policy_refusals=(),
     ):
         act = Act(
+            governance_tick=self.clock.tick(),
+            recorded_time=self.clock.wall(),
             previous_act_id=self.ledger.latest(),
             compiled_form_id=compiled_form.content_id(),
             invoking_credential_id=credential_id,
