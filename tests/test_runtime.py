@@ -1,5 +1,6 @@
 """Tests for the runtime."""
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -628,3 +629,45 @@ def test_every_in_scope_policy_is_evaluated_on_a_refusal():
     assert len(led) == 4
     assert [a.verdict for a in led] == ["refuse", "refuse", "refuse", "refuse"]
     assert led.verify() is True
+
+
+# =============================================================================
+# Compilation integrity: an absent witness is a failed check, not a skipped one
+# =============================================================================
+
+def test_a_compiled_form_with_no_witness_payload_refuses():
+    """PP 3.2 admits a compiled form to the code archive only when the
+    required quorum of witness signatures is present, so a form carrying no
+    witness payload has not been admitted under the architecture's own terms.
+
+    The integrity check used to read `if witness_payload and not verify(...)`,
+    which made the whole check bypassable by omission: a hand-constructed
+    form with an empty payload skipped verification and executed. The guard
+    is now unconditional."""
+    runtime, src_cid, cw_cid, _led = _wire_up()
+    unwitnessed = dataclasses.replace(
+        runtime.compiled_for(src_cid), witness="", witness_payload={},
+    )
+    runtime.register_compiled(unwitnessed)
+
+    result = runtime.invoke(src_cid, inputs={}, invoking_credential_id=cw_cid)
+
+    assert isinstance(result, Refuse)
+    assert "compilation integrity check failed" in result.rationale
+
+
+def test_a_witnessed_form_still_permits_and_a_tampered_one_still_refuses():
+    """The two paths either side of the absent-witness case, pinned together
+    so a future change to the guard cannot close the hole by breaking the
+    positive path."""
+    runtime, src_cid, cw_cid, _led = _wire_up()
+    permitted = runtime.invoke(src_cid, inputs={}, invoking_credential_id=cw_cid)
+    assert isinstance(permitted, Permit)
+
+    tampered = dataclasses.replace(
+        runtime.compiled_for(src_cid), policies=("not-a-real-policy-cid",),
+    )
+    runtime.register_compiled(tampered)
+    refused = runtime.invoke(src_cid, inputs={}, invoking_credential_id=cw_cid)
+    assert isinstance(refused, Refuse)
+    assert "compilation integrity check failed" in refused.rationale

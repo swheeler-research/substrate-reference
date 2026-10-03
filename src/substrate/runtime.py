@@ -294,12 +294,20 @@ class Runtime:
         #     verify against its own content; otherwise we are about to
         #     execute under a witness that has been tampered with or
         #     produced by a key no longer in use. Refuse.
-        if compiled_form.witness_payload and not verify_compiled_form(compiled_form):
+        #
+        #     An ABSENT witness fails this check too. PP 3.2 admits a
+        #     compiled form to the code archive only when the required
+        #     quorum of witness signatures is present, so a form carrying
+        #     no witness payload has not been admitted under the
+        #     architecture's own terms and must not execute. Treating a
+        #     missing payload as a pass would make the whole check
+        #     bypassable by omission.
+        if not verify_compiled_form(compiled_form):
             return self._refuse(
                 compiled_form,
                 inputs,
                 invoking_credential_id,
-                f"compilation integrity check failed; witness does not verify",
+                "compilation integrity check failed; witness does not verify",
             )
 
         # 2. Check the invoking credential. All four invalidation reasons
