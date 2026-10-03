@@ -1,5 +1,6 @@
 """Tests for the compile-at-commit pipeline."""
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -289,3 +290,49 @@ def test_compilation_succeeds_even_if_a_referenced_credential_is_revoked():
     cf = compile_unit(unit, code, creds)
     assert cf.source_unit == unit.content_id()
     assert parliament_cid in cf.authority_chain
+
+
+def test_a_malformed_drift_criterion_refuses_compilation():
+    """The compile-time wiring, not just the validator. Deleting step 3d from
+    compile_unit left the whole suite green, because every drift-validation
+    test called validate_drift_criteria directly. This drives a malformed
+    criterion through the admission path and asserts the unit is refused."""
+    code, creds = CodeArchive(), CredentialsArchive()
+    root_cid = creds.put(_constitutional_source())
+    unit = _functional("drifty", credential_refs=(root_cid,))
+    unit = dataclasses.replace(
+        unit, spec={"drift_criteria": [{"type": "mean_in", "bound": [0.8, 1.5]}]},
+    )
+    code.put(unit)
+    with pytest.raises(CompilationRefused) as exc:
+        compile_unit(unit, code, creds)
+    assert "drift criteria invalid" in str(exc.value)
+
+
+def test_an_unknown_criterion_type_with_an_unevaluable_window_refuses_compilation():
+    """The window is read for every criterion before any type is inspected, so
+    an unevaluable window on an unknown type raised ValueError out of the
+    runtime rather than refusing at admission. Shape is checked for all types,
+    semantics only for the types this runtime knows."""
+    code, creds = CodeArchive(), CredentialsArchive()
+    root_cid = creds.put(_constitutional_source())
+    unit = dataclasses.replace(
+        _functional("experimental", credential_refs=(root_cid,)),
+        spec={"drift_criteria": [{"type": "experimental_ks", "field": "c", "window": "wide"}]},
+    )
+    code.put(unit)
+    with pytest.raises(CompilationRefused):
+        compile_unit(unit, code, creds)
+
+
+def test_an_unknown_criterion_type_with_a_sound_window_still_compiles():
+    """Forward compatibility is preserved: the type is not rejected, only an
+    unevaluable window is."""
+    code, creds = CodeArchive(), CredentialsArchive()
+    root_cid = creds.put(_constitutional_source())
+    unit = dataclasses.replace(
+        _functional("experimental_ok", credential_refs=(root_cid,)),
+        spec={"drift_criteria": [{"type": "experimental_ks", "field": "c", "window": 4}]},
+    )
+    code.put(unit)
+    assert compile_unit(unit, code, creds) is not None

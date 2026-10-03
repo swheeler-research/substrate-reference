@@ -213,6 +213,19 @@ def validate_drift_criteria(criteria: Any) -> None:
             raise DriftCriterionError(
                 f"drift criterion {index} must be a dict; got {type(criterion).__name__}"
             )
+        # The window is read for EVERY criterion regardless of type, because
+        # DriftMonitor.observe computes the monitor's history depth as the max
+        # window across all declared criteria before it looks at any type. So
+        # an unevaluable window on a criterion of an UNKNOWN type would raise
+        # out of int() at the first observation, escaping the runtime as an
+        # ungoverned exception. Shape is checked for all; semantics only for
+        # types this runtime knows.
+        window = criterion.get("window")
+        if window is not None and (not isinstance(window, int) or isinstance(window, bool) or window <= 0):
+            raise DriftCriterionError(
+                f"drift criterion {index} declares a window of {window!r}; "
+                f"expected a positive integer"
+            )
         ctype = criterion.get("type")
         if ctype not in _KNOWN_CRITERION_TYPES:
             continue
@@ -226,11 +239,10 @@ def validate_drift_criteria(criteria: Any) -> None:
                 f"drift criterion {index} of type {ctype!r} declares a malformed "
                 f"bound {criterion.get('bound')!r}; expected an ordered pair of numbers"
             )
-        window = criterion.get("window")
-        if window is not None and (not isinstance(window, int) or isinstance(window, bool) or window <= 0):
+        if ctype == "rate_in" and "value" not in criterion:
             raise DriftCriterionError(
-                f"drift criterion {index} declares a window of {window!r}; "
-                f"expected a positive integer"
+                f"drift criterion {index} of type 'rate_in' declares no value to "
+                f"match, so it would measure the rate at which the field is absent"
             )
 
 

@@ -524,3 +524,48 @@ The certification pattern resolves both. The candidate is a runtime input to the
 - A payload field that was not a string raised `TypeError` out of `bytes.fromhex`, which escaped the runtime as an ungoverned exception rather than producing a refusal. Malformed input is now a failed verification.
 
 **The general lesson, which is the reason these are grouped.** Each of these, including the absent-witness case, was the same defect: **an invariant enforced where a value is produced, and assumed where it is consumed.** A verification function sees data chosen by whoever produced it, so every constraint the producer's constructor enforces has to be re-established on the verifying side.
+
+## A declared drift criterion can be well-formed and still unenforceable (October 2026)
+
+**Decision:** Recorded as a residual, not closed. Compilation now refuses a criterion of a known type whose
+declaration cannot be evaluated: no field, a malformed bound, an unevaluable window, or a `rate_in` with no
+value to match. What it cannot refuse is a criterion that is **well-formed and wrong**: a correct `field` key
+whose value names an output the unit never emits. Such a criterion passes validation, enters the unit's content
+identity, presents as monitoring that field, and can never fire.
+
+**Why this is not closed by the same move.** The producer side has no way to know which fields a unit's
+implementation will emit; that is a property of the code, and the architecture is explicit that it does not
+verify an implementation against its declarations. The consumption side could close it: `_evaluate_criterion`
+returns `None`, meaning satisfied, when no observation in a full window carries the named field, and the
+correct pattern already exists two modules away in `evaluate_confidence_gate`, which refuses when a required
+input field is absent.
+
+**Why it has deliberately not been changed.** Making drift fire when a declared field never appears would
+change what the invalidation trigger means. Drift signals that observed behaviour has left a declared band.
+"The declaration names a field that does not exist" is a different fault, and conflating the two would report a
+unit as drifted when nothing about its behaviour has drifted. It would also break a unit whose field appears
+intermittently by design. The right answer is probably a distinct signal rather than a reuse of this one, and
+choosing is an architectural decision rather than a repair.
+
+**The honest statement for a reader of PP 3.7:** the prototype enforces a drift criterion whose declaration it
+can evaluate against observations that carry the named field. A criterion naming a field the unit does not emit
+is inert, and the substrate does not report that it is inert.
+
+## Backtest exceedance was computed over offered pairs rather than evaluated pairs (October 2026, fixed)
+
+**Recorded because the defect manufactured evidence rather than withholding it**, which makes it the most
+consequential of the family found in this review and worth a reader knowing it existed.
+
+`exceedance_rate` dropped a pair from the numerator when either field was absent and kept it in the
+denominator. A backtest over ten pairs whose outcome field name was mistyped therefore returned `0.0` rather
+than no result, and the London Whale backtest unit, which distinguishes `None` as insufficient data from a rate
+above the declared bound, reported `calibration_holds` with a plausible-looking pair count. A wholly violated
+value-at-risk calibration claim read as holding, on no evaluable evidence.
+
+The rate is now over the pairs actually evaluated, and no evaluable pair returns `None`. An existing test
+asserted the old behaviour and has been corrected: it constructed two pairs, neither evaluable, and asserted
+`0.0`.
+
+**The general point, which is the fourth time this review has reached it:** a function that reports a
+governance property must distinguish "the property holds" from "I could not establish the property". Returning
+a falsy value for the second is how the second becomes the first.

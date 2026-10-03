@@ -173,12 +173,30 @@ def test_exceedance_rate_var_underestimated():
     assert rate == 0.5
 
 
-def test_exceedance_rate_skips_missing_fields():
+def test_exceedance_rate_reports_no_result_when_nothing_was_evaluable():
+    """Neither pair here is evaluable: the first has no realised value, the
+    second no bound. This previously returned 0.0, which is a POSITIVE
+    attestation that the calibration claim holds, produced from no evidence at
+    all. A mistyped outcome field name turned a wholly violated claim into
+    "calibration_holds" with a plausible-looking pair count.
+
+    The rate is now over the pairs actually evaluated, and no evaluable pair
+    means no result. The London Whale backtest unit already distinguishes
+    None (insufficient data) from a rate above the declared bound."""
     pairs = [
         ({"bound": 10.0}, {"realised": None}),
         ({}, {"realised": 5.0}),
     ]
-    assert exceedance_rate(pairs, "bound", "realised") == 0.0
+    assert exceedance_rate(pairs, "bound", "realised") is None
+
+
+def test_exceedance_rate_is_over_evaluated_pairs_not_offered_pairs():
+    """Nine unevaluable pairs alongside one that exceeds its bound is an
+    exceedance rate of 1.0 over the evidence that exists, not 0.1 over the
+    evidence that does not."""
+    pairs = [({"bound": 50.0}, {"wrong_field": 500.0}) for _ in range(9)]
+    pairs.append(({"bound": 50.0}, {"realised": 500.0}))
+    assert exceedance_rate(pairs, "bound", "realised") == 1.0
 
 
 # =============================================================================

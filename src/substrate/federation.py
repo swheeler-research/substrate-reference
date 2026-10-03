@@ -198,6 +198,16 @@ class QuorumCustodian:
     def __init__(self, members: tuple, threshold: int, name: str = "quorum"):
         if not members:
             raise ValueError("QuorumCustodian requires at least one member")
+        # The verifier requires an integer of at least one, and type(...) is int
+        # there excludes bool. Enforce the same constraint here. Otherwise a
+        # custodian constructed with threshold=True produces a witness payload
+        # the verifier rejects, and every invocation refuses with "compilation
+        # integrity check failed; witness does not verify" when nothing was
+        # tampered with. Producer and verifier must agree on what a threshold is.
+        if type(threshold) is not int:
+            raise ValueError(
+                f"QuorumCustodian threshold must be an int, got {type(threshold).__name__}"
+            )
         if threshold < 1:
             raise ValueError(f"QuorumCustodian threshold must be >= 1, got {threshold}")
         if threshold > len(members):

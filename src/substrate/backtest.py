@@ -181,11 +181,20 @@ def exceedance_rate(
     if not pairs:
         return None
     exceedances = 0
+    evaluated = 0
     for p, o in pairs:
         bound = p.get(bound_field)
         realised = o.get(realised_field)
         if bound is None or realised is None:
             continue
+        evaluated += 1
         if realised > bound:
             exceedances += 1
-    return exceedances / len(pairs)
+    # Divide by the pairs actually evaluated, not by every pair offered. A
+    # mistyped outcome field drops a pair from the numerator while leaving it
+    # in the denominator, so a wholly unevaluable backtest returned 0.0: a
+    # POSITIVE attestation that a violated calibration claim holds. Nothing
+    # evaluable means no result, which the caller already handles.
+    if evaluated == 0:
+        return None
+    return exceedances / evaluated
