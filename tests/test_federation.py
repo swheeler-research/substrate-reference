@@ -14,6 +14,8 @@ from substrate.federation import (
     QuorumNotMet,
     WitnessRequest,
     WitnessResponse,
+    verify_quorum_witness,
+    verify_witness,
 )
 from substrate.operator import create_operator
 from substrate.primitives import CredentialUnit, TransferDiscipline
@@ -424,3 +426,57 @@ def test_empty_cooperative_substrate_has_no_custodian():
     coop = CooperativeSubstrate()
     with pytest.raises(ValueError, match="no members"):
         coop.custodian
+
+
+# =============================================================================
+# Verification re-establishes what the constructor enforces
+# =============================================================================
+
+def test_a_threshold_below_one_does_not_verify_with_zero_signatures():
+    """The threshold arrives inside the payload being verified, so it is
+    chosen by whoever produced that payload. A threshold of zero or below
+    satisfied `valid >= threshold` with no contributions at all, verifying a
+    compiled form that carried no signature of any kind.
+
+    QuorumCustodian rejects such a threshold at construction, which is why
+    no existing test caught this: verification sees payloads its own
+    constructor did not produce."""
+    for threshold in (-1, 0):
+        payload = {
+            "type": "quorum_witness",
+            "quorum_name": "nobody",
+            "threshold": threshold,
+            "payload_hash": "ab" * 32,
+            "contributions": {},
+        }
+        assert verify_quorum_witness("ab" * 32, payload) is False
+
+
+def test_a_boolean_or_non_integer_threshold_does_not_verify():
+    """isinstance(True, int) is True, so a bool reached the comparison. A
+    threshold that is not an integer is not a threshold."""
+    for threshold in (True, False, "1", 1.0, None):
+        payload = {
+            "type": "quorum_witness",
+            "quorum_name": "q",
+            "threshold": threshold,
+            "payload_hash": "ab" * 32,
+            "contributions": {},
+        }
+        assert verify_quorum_witness("ab" * 32, payload) is False
+
+
+def test_a_malformed_witness_field_refuses_rather_than_raising():
+    """A payload field that is not a string at all raised TypeError out of
+    bytes.fromhex, which escaped as an ungoverned exception rather than a
+    refusal. Malformed input is a failed verification."""
+    for key, sig, digest in (
+        (None, "cd", "ab"),
+        (3, "cd", "ab"),
+        ("ab", None, "ab"),
+        ("ab", "cd", None),
+        ([], "cd", "ab"),
+    ):
+        assert verify_witness(
+            public_key_hex=key, payload_hash=digest, signature_hex=sig,
+        ) is False

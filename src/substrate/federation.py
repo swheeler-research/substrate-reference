@@ -140,14 +140,22 @@ def verify_witness(public_key_hex: str, payload_hash: str, signature_hex: str) -
     given public key. False otherwise (invalid signature, malformed
     inputs, wrong key).
     """
+    # TypeError as well as ValueError: a payload field that is not a string
+    # at all (None, an int, a list) raises TypeError from fromhex, and an
+    # escaping exception is not a governed refusal. Malformed input is a
+    # failed verification, not a crash.
+    if not isinstance(public_key_hex, str) or not isinstance(signature_hex, str):
+        return False
+    if not isinstance(payload_hash, str):
+        return False
     try:
         public_key_bytes = bytes.fromhex(public_key_hex)
         signature_bytes = bytes.fromhex(signature_hex)
-    except ValueError:
+    except (ValueError, TypeError):
         return False
     try:
         payload_bytes = bytes.fromhex(payload_hash)
-    except ValueError:
+    except (ValueError, TypeError):
         payload_bytes = payload_hash.encode("utf-8")
     try:
         public_key = ed25519.Ed25519PublicKey.from_public_bytes(public_key_bytes)
@@ -309,7 +317,17 @@ def verify_quorum_witness(payload_hash: str, quorum_payload: dict) -> bool:
         return False
     threshold = quorum_payload.get("threshold")
     contributions = quorum_payload.get("contributions")
-    if not isinstance(threshold, int) or not isinstance(contributions, dict):
+    # A quorum of fewer than one signature is not a quorum. The threshold
+    # arrives inside the payload being verified, so it is supplied by whoever
+    # produced that payload: `threshold: 0` or `threshold: -1` with no
+    # contributions at all would otherwise satisfy `valid >= threshold` and
+    # verify a compiled form carrying no signature of any kind.
+    # QuorumCustodian rejects a threshold below one at construction, but
+    # verification sees payloads its own constructor did not produce, so the
+    # invariant has to hold here as well. `type(...) is int` excludes bool.
+    if type(threshold) is not int or threshold < 1:
+        return False
+    if not isinstance(contributions, dict):
         return False
     valid = 0
     for _custodian_name, contrib in contributions.items():

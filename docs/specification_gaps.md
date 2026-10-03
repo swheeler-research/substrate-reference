@@ -95,8 +95,8 @@ This is the smallest crypto upgrade that delivers the substrate's claims. Ed2551
 
 - Witness attribution: a valid witness is a proof that the holder of a specific private key signed the specific payload hash. The custodian holding that private key is the only entity that could have produced it.
 - Tamper resistance: changing the signature, the payload hash, or the public key in a multi-sig contribution breaks verification.
-- Quorum integrity: a multi-sig with N members verifies only when at least `threshold` members produced valid signatures over the same payload hash; substituting one member's signature for another's, or sneaking in an extra contribution from a non-member, fails verification (the public key is checked against the contribution's claimed signature).
-- Forge resistance under reasonable cryptographic assumptions: Ed25519 has no known practical attack; the substrate's witnesses are now as forge-resistant as Ed25519 itself.
+- Quorum integrity, as far as it goes: a multi-sig verifies only when at least `threshold` contributions carry valid signatures over the same payload hash, and substituting one contribution's signature for another's fails verification, because each public key is checked against its own claimed signature. **It does not establish that the signatories are the quorum's members.** See the October 2026 entry below; the earlier claim that an extra contribution from a non-member fails verification was wrong.
+- Forge resistance of a signature, under reasonable cryptographic assumptions: Ed25519 has no known practical attack, so a signature by a given key cannot be forged. **This is not the same property as a witness being unforgeable**, and the earlier wording conflated the two: an acceptable witness can be produced without attacking any key, by supplying keys of one's own. See the October 2026 entry below.
 
 **What is NOT yet handled (the remaining cryptographic gaps):**
 
@@ -506,3 +506,21 @@ The certification pattern resolves both. The candidate is a runtime input to the
 **What is therefore absent:** any attestation that an independent run of the pipeline produced that hash. A quorum attests the same thing several times rather than agreeing independently, so the diversity assumption the architecture rests its strongest defensive claims on is not exercised. The consequence is visible at the compilation-integrity invalidation trigger (§3.7): the prototype detects a compiled form altered after witnessing, which is what `verify_compiled_form` checks, but not a compiler that produced the wrong compiled form in the first place.
 
 **A prerequisite the architecture has not specified.** Witnessing by independent recompilation requires the pipeline to be deterministic, and §3.2's stage 1 fails resolution on credentials that are revoked or expired, which is mutable and clock-dependent. Two custodians recompiling either side of a revocation legitimately disagree. A production conforming implementation needs a determinism contract first: a canonical serialisation, a pinned satisfiability checker, and a revocation as-of time pinned into the declared inputs. Without it, a quorum that gates admission turns non-determinism into a liveness failure rather than a monitoring signal.
+
+
+## Witness verification is self-referential; there is no authorised-custodian set (October 2026)
+
+**Decision:** Recorded as a gap, not closed. `verify_compiled_form` and `verify_quorum_witness` take only the payload being verified. The payload names its own public keys, its own custodian names and its own threshold, so verification establishes that each contribution's signature matches the key presented alongside it, and nothing more.
+
+**What this means concretely, demonstrated.** A quorum payload whose three contributions are signed by three freshly generated keypairs, belonging to nobody, verifies as a quorum of three. Adding one such contribution to a genuine two-member payload at a threshold of three carries it from refused to verified. No key compromise is involved; the signatures are real, and they are signatures by whoever chose to make them.
+
+**Why the interface cannot currently do better.** The runtime calls `verify_compiled_form(compiled_form)` with one argument, because it has no membership set to supply. Members of a cooperative substrate are represented by the cooperative credential's parent references, which the verification path never consults. Closing this needs an expected-custodian set threaded from the archive or the cooperative substrate into verification, which is the same witness-bearing archive interface the absent-witness entry defers.
+
+**Two claims in the real-cryptography entry above were corrected in the same pass**, because they asserted the opposite: that an extra contribution from a non-member fails verification, and that the substrate's witnesses are as forge-resistant as Ed25519. The first is false. The second conflates the unforgeability of a signature by a given key, which holds, with the unforgeability of an accepted witness, which does not.
+
+**Related and now fixed, so recorded for completeness rather than as an open gap.** Two adjacent defects of the same shape, found in the same review and closed in `federation.py`:
+
+- A threshold below one accepted zero signatures. The threshold arrives inside the payload, so `threshold: 0` or `threshold: -1` with no contributions satisfied `valid >= threshold`. `QuorumCustodian` rejects such a threshold at construction, but verification sees payloads its constructor did not produce. Verification now requires a threshold that is an integer of at least one.
+- A payload field that was not a string raised `TypeError` out of `bytes.fromhex`, which escaped the runtime as an ungoverned exception rather than producing a refusal. Malformed input is now a failed verification.
+
+**The general lesson, which is the reason these are grouped.** Each of these, including the absent-witness case, was the same defect: **an invariant enforced where a value is produced, and assumed where it is consumed.** A verification function sees data chosen by whoever produced it, so every constraint the producer's constructor enforces has to be re-established on the verifying side.
