@@ -689,3 +689,67 @@ def test_the_committing_tick_is_later_than_the_entry_tick_by_the_policy_count():
     entry = {t for _, t, _ in runtime._probe}.pop()
     committing = list(runtime.ledger)[-1].governance_tick
     assert committing == entry + 4
+
+
+# =============================================================================
+# The bound on the self-issue test, exhibited
+# =============================================================================
+#
+# Resolving the chain establishes what a credential claims about where its
+# authority comes from. It does not establish that the claim is the issuer's,
+# because admission to the credentials archive validates nothing: any party can
+# put a credential naming any parent. So a party can route around the self-issue
+# test by naming the operator's root directly instead of itself.
+#
+# This is within a gap the companion's register already discloses, enrolment
+# validation at admission. It is tested here rather than left to a reader to
+# find, because the papers now state the self-issue test as the mechanism by
+# which an authorisation is established as granted rather than self-granted, and
+# a reader is entitled to know where that stops.
+
+def test_the_self_issue_test_is_evaded_by_naming_the_root_directly():
+    runtime, unit, root_cid = _wire_policy(_RESOLVING_POLICY)
+    trader = runtime.credentials.put(_cred("desk_trader", (root_cid,)))
+
+    # The forgery the policy catches: issued by the trader.
+    caught = runtime.credentials.put(
+        _cred("escalation", (trader,), principal="governance:escalation")
+    )
+    assert isinstance(
+        runtime.invoke(unit.content_id(), {"escalation_credential_id": caught}, trader),
+        Refuse,
+    )
+
+    # The same party, minting a credential that names the operator's root as its
+    # parent instead of itself. Nothing authenticated the issuance, so the
+    # credential is indistinguishable from a genuine one by any test over the
+    # chain, and the policy permits.
+    evasion = runtime.credentials.put(
+        _cred("escalation", (root_cid,), principal="governance:escalation")
+    )
+    result = runtime.invoke(
+        unit.content_id(), {"escalation_credential_id": evasion}, trader
+    )
+    assert isinstance(result, Permit), (
+        "if this now refuses, enrolment validation at admission has landed and "
+        "the papers' statement of the bound should be revisited"
+    )
+    assert trader not in runtime.resolve_credential(evasion).authority_chain
+
+
+def test_the_archive_admits_a_credential_from_any_party():
+    """The root of the bound: `put` takes content and returns its identity. There
+    is no issuer, nothing is signed, and nothing is checked against the authority
+    the credential names."""
+    runtime, _, root_cid, _ = _wire(clock=FixedClock())
+    fabricated = _cred(
+        "constitutional_source", (), principal="governance:constitutional_source"
+    )
+    cid = runtime.credentials.put(fabricated)
+    resolved = runtime.resolve_credential(cid)
+    assert resolved.valid is True
+    assert resolved.bears("governance:constitutional_source") is True
+    # A credential with an empty provenance chain, which the architecture
+    # reserves for constitutional sources issued by natural persons, admitted
+    # without any attestation of either.
+    assert resolved.credential.credential_refs == ()
