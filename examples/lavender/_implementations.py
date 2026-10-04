@@ -126,16 +126,26 @@ def implementation(inputs, runtime, invoking_credential_id):
 # become detectable.
 MEANINGFUL_REVIEW_POLICY = """
 def implementation(inputs, runtime, invoking_credential_id):
+    # The reviewer is established by resolving the credential, not by reading
+    # the name the caller supplied alongside it. The earlier version refused a
+    # reviewer whose supplied name contained "bulk_approval", which an operator
+    # minded to approve in bulk had only to omit.
     reviewer_cid = inputs.get("reviewer_credential_id", "")
-    reviewer_name = inputs.get("reviewer_name", "")
     if not reviewer_cid:
         raise Exception("no reviewer credential attached; meaningful human review required")
-    if not reviewer_name:
-        raise Exception("no reviewer_name provided alongside reviewer_credential_id; "
-                        "the substrate cannot evaluate review quality without it")
-    if "bulk_approval" in reviewer_name:
-        raise Exception("reviewer " + reviewer_name + " is a bulk-approval marker; "
-                        "individual review by an attributable reviewer required")
+
+    reviewer = runtime.resolve_credential(reviewer_cid)
+    if not reviewer.valid:
+        raise Exception("reviewer credential " + reviewer_cid[:12] + " is " +
+                        reviewer.status + "; meaningful human review requires a "
+                        "live attributable reviewer")
+    if not reviewer.bears("review:individual_target_review"):
+        raise Exception("credential " + reviewer_cid[:12] + " does not bear "
+                        "individual-review authority; a credential issued for "
+                        "bulk approval cannot satisfy individual review")
+    if reviewer_cid == invoking_credential_id:
+        raise Exception("the invoking credential cannot be its own reviewer; "
+                        "review by a second party is what the requirement is")
     return {}
 """
 

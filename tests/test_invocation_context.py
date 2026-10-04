@@ -59,7 +59,7 @@ def implementation(inputs, runtime, invoking_credential_id):
         "principal_chain_len": len(ctx.principal.authority_chain),
         "inputs_seen": sorted(ctx.inputs.keys()),
         "state_count": len(ctx.state),
-        "tick": ctx.governance_tick,
+        "tick": ctx.entry_tick,
         "wall": ctx.wall_time,
         "target": ctx.target_unit_id,
     }
@@ -156,16 +156,20 @@ def test_context_carries_the_temporal_context():
     runtime, unit, _, cw_cid = _wire(clock=FixedClock("2026-10-03T12:00:00Z"))
     out = runtime.invoke(unit.content_id(), {}, cw_cid).output
     assert out["wall"] == "2026-10-03T12:00:00Z"
-    assert out["tick"] >= 1
+    # The reading at entry. Zero for the first act on a substrate, which is the
+    # state the formal model's initial state represents.
+    assert out["tick"] == 0
 
 
-def test_context_tick_predicts_the_tick_the_act_records():
-    """The context is built before the act is committed, so the tick it
-    reports must be the tick the act then carries."""
+def test_context_entry_tick_is_the_reading_at_entry_not_the_committing_tick():
+    """With no policies in scope the two coincide, which is why an earlier
+    version of this test passed while the prediction it asserted was wrong by
+    the number of policies in scope. See the policy test below."""
     runtime, unit, _, cw_cid = _wire(clock=FixedClock())
     result = runtime.invoke(unit.content_id(), {}, cw_cid)
     act = list(runtime.ledger)[-1]
-    assert result.output["tick"] == act.governance_tick
+    assert result.output["tick"] == act.governance_tick - 1
+    assert result.output["tick"] == 0
 
 
 def test_context_is_absent_outside_an_invocation():
@@ -583,3 +587,105 @@ def test_the_deployed_policy_separates_them_and_a_name_test_does_not():
         runtime.credentials.get(genuine).name
         == runtime.credentials.get(forged).name
     )
+
+
+# =============================================================================
+# A policy reads the context of the act it governs, not a context of its own
+# =============================================================================
+#
+# The first version of the invocation context pushed a fresh context for every
+# invocation, including the policy evaluations the runtime performs on an act's
+# behalf. Three of the four components then described the policy rather than the
+# act: target_unit_id named the policy unit, state resolved the policy's own
+# references, and the tick advanced once per policy act so that each policy saw
+# a different one and none saw the act's. These tests pin the corrected
+# behaviour and would fail against that version.
+
+_CTX_REPORTER_POLICY = """
+def implementation(inputs, runtime, invoking_credential_id):
+    c = runtime.invocation_context()
+    runtime._probe = getattr(runtime, "_probe", [])
+    runtime._probe.append((c.target_unit_id, c.entry_tick, len(c.state)))
+    return {}
+"""
+
+
+def _wire_three_policies():
+    code = CodeArchive()
+    creds = CredentialsArchive()
+    led = FederatedLedger()
+    root_cid = creds.put(_cred("root"))
+    pimpl = code.put(python_implementation(_CTX_REPORTER_POLICY))
+    pols, bindings = [], []
+    for i in range(3):
+        p = FunctionalUnit(
+            name="pol%d" % i,
+            contract_pattern=ContractPattern.SPECIFICATION_BOUNDED,
+            spec={"n": i},
+            implementation_ref=pimpl,
+            credential_refs=(root_cid,),
+        )
+        code.put(p)
+        pols.append(p)
+        bindings.append(creds.put(CredentialUnit(
+            name="b%d" % i,
+            transfer=TransferDiscipline.DELEGATED,
+            principal="governance:b%d" % i,
+            authorities=(),
+            policy_refs=(p.content_id(),),
+            credential_refs=(root_cid,),
+        )))
+    held = code.put(StateUnit(
+        name="held", mutability=MutabilityDiscipline.IMMUTABLE, content={"v": 1}
+    ))
+    timpl = code.put(python_implementation(_PASS))
+    unit = FunctionalUnit(
+        name="governed",
+        contract_pattern=ContractPattern.SPECIFICATION_BOUNDED,
+        spec={},
+        implementation_ref=timpl,
+        credential_refs=(root_cid,) + tuple(bindings),
+        functional_refs=tuple(p.content_id() for p in pols),
+        state_refs=(pimpl, held, timpl),
+    )
+    code.put(unit)
+    runtime = Runtime(code, creds, led, clock=FixedClock())
+    for p in pols:
+        runtime.register_compiled(compile_unit(p, code, creds, custodian=LocalCustodian("t")))
+    runtime.register_compiled(compile_unit(unit, code, creds, custodian=LocalCustodian("t")))
+    caller = creds.put(_cred("caller", (root_cid,)))
+    return runtime, unit, caller
+
+
+def test_every_policy_sees_the_governed_units_identity_not_its_own():
+    runtime, unit, caller = _wire_three_policies()
+    assert isinstance(runtime.invoke(unit.content_id(), {}, caller), Permit)
+    targets = {t for t, _, _ in runtime._probe}
+    assert len(runtime._probe) == 3
+    assert targets == {unit.content_id()}
+
+
+def test_every_policy_sees_the_same_entry_tick():
+    """Not one tick each. The act is one act however many policies govern it."""
+    runtime, unit, caller = _wire_three_policies()
+    runtime.invoke(unit.content_id(), {}, caller)
+    ticks = {t for _, t, _ in runtime._probe}
+    assert len(ticks) == 1
+
+
+def test_every_policy_sees_the_governed_units_state_not_its_own():
+    """The policy units reference no state of their own, so the old behaviour
+    showed every policy an empty mapping."""
+    runtime, unit, caller = _wire_three_policies()
+    runtime.invoke(unit.content_id(), {}, caller)
+    counts = {n for _, _, n in runtime._probe}
+    assert counts == {3}
+
+
+def test_the_committing_tick_is_later_than_the_entry_tick_by_the_policy_count():
+    """Which is why the context cannot predict it, and no longer claims to."""
+    runtime, unit, caller = _wire_three_policies()
+    runtime.invoke(unit.content_id(), {}, caller)
+    entry = {t for _, t, _ in runtime._probe}.pop()
+    committing = list(runtime.ledger)[-1].governance_tick
+    assert committing == entry + 4

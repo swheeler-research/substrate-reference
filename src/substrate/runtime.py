@@ -151,16 +151,22 @@ class InvocationContext:
 
     `principal` is the resolved invoking credential, not its identity string.
     `state` maps the content identity of each state unit the compiled form
-    references to the unit the archive holds. `governance_tick` and
-    `wall_time` are the act's own clock readings, so a policy that reasons
-    about time reasons about the time of the act it is governing rather than
-    about whenever it happens to run.
+    references to the unit the archive holds.
+
+    `entry_tick` is the governance clock as it read when evaluation of this act
+    began, and `wall_time` the operator's reading at the same moment. It is
+    deliberately not the tick the act will finally record: an act commits after
+    its policies, each policy evaluation is itself an act, and each advances the
+    clock, so the committing tick is not knowable at entry. What a policy needs
+    is the instant the act it governs began, which is what this is. An earlier
+    version of this type predicted the committing tick and was wrong by the
+    number of policies in scope.
     """
 
     principal: ResolvedCredential
     inputs: dict
     state: dict
-    governance_tick: int
+    entry_tick: int
     wall_time: str
     compiled_form_id: str
     target_unit_id: str
@@ -302,6 +308,36 @@ class Runtime:
                 if parent not in seen:
                     frontier.append(parent)
         return tuple(seen)
+
+    def compiled_authority_chain(self, source_unit_id: str) -> Optional[tuple]:
+        """The authority chain of a unit's compiled form, or None if uncompiled.
+
+        A policy whose verdict is a claim about what authority a unit recognises
+        needs the chain the compilation actually resolved, not an assertion
+        about it. The certification policy in the Boeing demonstration is the
+        case: it previously read a boolean saying whether a pilot-override
+        credential was in the candidate's chain, which the party seeking
+        certification supplied.
+        """
+        compiled_cid = self._compiled_by_source.get(source_unit_id)
+        if compiled_cid is not None:
+            try:
+                return tuple(self.code.get_for_audit(compiled_cid).authority_chain)
+            except Exception:
+                pass
+        # A certifier inspects a unit compiled under the operator that authored
+        # it, so this runtime may hold no compiled form for it. Fall back to the
+        # unit's own declared credential references, which are archive content
+        # and part of the unit's content identity. Weaker than the resolved
+        # chain, because it is one level rather than transitive, and still not
+        # something the party under inspection can assert at invocation. The
+        # architecture's answer to the gap is witnessing by independent
+        # recompilation, which the register records as unsubstantiated.
+        try:
+            unit = self.code.get_for_audit(source_unit_id)
+        except Exception:
+            return None
+        return tuple(getattr(unit, "credential_refs", ()) or ())
 
     def invocation_context(self) -> Optional[InvocationContext]:
         """The context of the act currently being evaluated, or None.
@@ -551,23 +587,33 @@ class Runtime:
         #     reference set is still visible to a policy that wants to see it
         #     and is not an error on the way to building the context. The
         #     stages that do refuse have already run.
-        context = InvocationContext(
-            principal=self.resolve_credential(invoking_credential_id),
-            inputs=inputs,
-            state=self._resolve_state_refs(compiled_form),
-            governance_tick=self.clock.reading() + 1,
-            wall_time=self.clock.wall(),
-            compiled_form_id=compiled_form.content_id(),
-            target_unit_id=compiled_form.source_unit,
-        )
-        self._context_stack.append(context)
+        #     A policy evaluation does not get a context of its own. The
+        #     architecture says the rolled-up policy evaluates against *the
+        #     act's* invocation context, singular, and a policy governs the act
+        #     that brought it into scope. Giving each policy its own context
+        #     made three of the four components describe the policy instead:
+        #     `target_unit_id` named the policy, `state` resolved the policy's
+        #     own references, and the tick advanced once per policy act. So the
+        #     context is pushed only for an invocation that is not a policy
+        #     evaluation, and a policy reads the context of the act it governs.
+        if _observe_for_propagation:
+            self._context_stack.append(InvocationContext(
+                principal=self.resolve_credential(invoking_credential_id),
+                inputs=inputs,
+                state=self._resolve_state_refs(compiled_form),
+                entry_tick=self.clock.reading(),
+                wall_time=self.clock.wall(),
+                compiled_form_id=compiled_form.content_id(),
+                target_unit_id=compiled_form.source_unit,
+            ))
         try:
             return self._evaluate_and_execute(
                 compiled_form, inputs, invoking_credential_id,
                 _observe_for_propagation,
             )
         finally:
-            self._context_stack.pop()
+            if _observe_for_propagation:
+                self._context_stack.pop()
 
     def _resolve_state_refs(self, compiled_form) -> dict:
         """The state units the compiled form references, by content identity.

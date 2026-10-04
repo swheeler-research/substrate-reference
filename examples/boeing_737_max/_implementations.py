@@ -88,14 +88,32 @@ def implementation(inputs, runtime, invoking_credential_id):
 # to override; absent that reference, the unit cannot be certified.
 PILOT_OVERRIDE_REQUIRED_POLICY = """
 def implementation(inputs, runtime, invoking_credential_id):
-    pilot_credential_in_authority = inputs.get("pilot_credential_in_authority_chain", False)
-    if not pilot_credential_in_authority:
+    # This policy's verdict is a claim about an authority chain, so it resolves
+    # the chain rather than reading an assertion about it. The earlier version
+    # read a boolean, `pilot_credential_in_authority_chain`, supplied by the
+    # caller: a manufacturer seeking certification asserted that its own unit
+    # recognised pilot override, and the policy agreed.
+    candidate_id = inputs.get("candidate_unit_id", "")
+    if not candidate_id:
         raise Exception(
-            "certification refused: unit's authority chain does not include a "
-            "pilot-override credential. Flight-control automation must structurally "
-            "recognise pilot authority to override."
+            "certification refused: no candidate unit declared for certification"
         )
-    return {}
+    chain = runtime.compiled_authority_chain(candidate_id)
+    if not chain:
+        raise Exception(
+            "certification refused: candidate unit " + candidate_id[:12] +
+            " declares no authority references, so no pilot-override authority "
+            "can be established for it"
+        )
+    for cid in chain:
+        resolved = runtime.resolve_credential(cid)
+        if resolved.bears("authority:pilot_override"):
+            return {}
+    raise Exception(
+        "certification refused: the candidate unit's compiled authority chain "
+        "includes no credential bearing pilot-override authority. Flight-control "
+        "automation must structurally recognise pilot authority to override."
+    )
 """
 
 
@@ -149,6 +167,9 @@ def implementation(inputs, runtime, invoking_credential_id):
     candidate = runtime.code.get_for_audit(candidate_id)
     spec = candidate.spec if isinstance(candidate.spec, dict) else {}
     sensors_declared = spec.get("sensors_declared", [])
+    # Retained only for the certification record. The policy no longer
+    # relies on it: a declared top-level reference is weaker than the
+    # compiled authority chain, which is what the policy now resolves.
     pilot_in_chain = pilot_credential_id in candidate.credential_refs
 
     # Invoke the FAA's certification policy units as sub-units. Each is a
@@ -168,7 +189,7 @@ def implementation(inputs, runtime, invoking_credential_id):
 
     pilot_check = runtime.invoke(
         pilot_override_policy_id,
-        {"pilot_credential_in_authority_chain": pilot_in_chain},
+        {"candidate_unit_id": candidate_id},
         invoking_credential_id,
     )
     if pilot_check.__class__.__name__ != "Permit":

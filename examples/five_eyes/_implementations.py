@@ -52,6 +52,26 @@ def implementation(inputs, runtime, invoking_credential_id):
                 " cannot query " + target_jurisdiction + " (own jurisdiction) " +
                 "without cooperative-substrate authorisation from a partner agency"
             )
+        # The authorisation is a credential, resolved here. Accepting any
+        # non-empty string, which is what this policy did before, let the
+        # agency authorise its own self-jurisdiction query by typing a value.
+        resolved = runtime.resolve_credential(cooperative_authorisation)
+        if not resolved.valid:
+            raise Exception(
+                "jurisdiction_scope_policy refuses: cooperative authorisation " +
+                cooperative_authorisation[:12] + " is " + resolved.status
+            )
+        if not resolved.bears("cooperative:partner_authorisation"):
+            raise Exception(
+                "jurisdiction_scope_policy refuses: credential " +
+                cooperative_authorisation[:12] + " does not bear partner "
+                "authorisation for a self-jurisdiction query"
+            )
+        if invoking_credential_id in resolved.authority_chain:
+            raise Exception(
+                "jurisdiction_scope_policy refuses: the querying credential is "
+                "in the authorisation's own chain, so the agency authorised itself"
+            )
     return {}
 """
 

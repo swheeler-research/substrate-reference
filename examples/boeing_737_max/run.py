@@ -95,8 +95,17 @@ def build_scene():
     # by the FAA / authority of jurisdiction). This is the architectural
     # mechanism for "pilots have structural override authority": their
     # credential is in the unit's authority chain.
-    pilot_credential = _cred("captain_authority", parent_cids=(faa_root_cid,),
-                              authorities=("override:flight_control",))
+    pilot_credential = CredentialUnit(
+        name="captain_authority",
+        transfer=TransferDiscipline.DELEGATED,
+        # The principal is what the FAA's certification policy resolves and
+        # tests. It is part of the credential's content and so of its content
+        # identity, which is what makes the test one Boeing cannot satisfy by
+        # naming a credential of its own after this one.
+        principal="authority:pilot_override",
+        authorities=("override:flight_control",),
+        credential_refs=(faa_root_cid,),
+    )
     pilot_cred_cid = creds.put(pilot_credential)
 
     # Cooperative substrate: Boeing + FAA + airlines.
