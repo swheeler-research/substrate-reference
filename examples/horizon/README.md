@@ -122,7 +122,7 @@ PostOffice side:
 - `audit_branch` — exposed to the Court via the cooperative substrate; walks the PO ledger and returns relevant acts for a given branch.
 
 CourtOfAppeals side:
-- `investigate_branch` — the Court auditor's tool; calls PO's `audit_branch` cross-operator and produces a forensic report on the Court's ledger.
+- `investigate_branch`: the Court auditor's tool; calls PO's `audit_branch` cross-operator, and its act, whose output carries the attribution, commits to the Court's ledger. No report state unit is produced; the audit's output is the act's output.
 
 **Compilation**: cross-operator units (`audit_branch`, `investigate_branch`) are compiled under the cooperative substrate's quorum custodian — both operators' Ed25519 custodians sign each compiled form. Neither side can unilaterally alter cross-operator unit terms.
 
@@ -152,7 +152,7 @@ The demonstration walks through ten steps:
 2. **Alice records 10 legitimate sales** of GBP 100 each. Balance check (v1) reports GBP 1000 — correct so far.
 3. **Fujitsu engineer adds 5 `credit_reversal` entries** of GBP 100 each. Each modification is signed by Fujitsu's credential.
 4. **Balance check (v1) now reports GBP 500** — the phantom shortfall. In Horizon this is the figure used to prosecute postmasters.
-5-7. **Court of Appeals investigates** via cross-operator audit. The forensic report on the Court's ledger attributes activity by credential: GBP 1000 of sales to Alice, GBP 500 of credit reversals to Fujitsu. The shortfall is structurally NOT attributable to Alice.
+5-7. **Court of Appeal investigates** via cross-operator audit. The audit act on the Court's ledger attributes activity by credential in its output: GBP 1000 of sales to Alice, GBP 500 of credit reversals to Fujitsu. The shortfall is structurally NOT attributable to Alice.
 8. **Bug discovered**: PostOffice deprecates `balance_check_v1` via an administrative act on its own ledger.
 9. **Re-run `balance_check_v2`** against the same data: returns GBP 1000 — the correct figure. The discrepancy was the implementation, not Alice.
 10. **Court re-investigates**: now sees all three balance figures (two v1, one v2) plus the deprecation event. The forensic case is constructible from substrate evidence alone.

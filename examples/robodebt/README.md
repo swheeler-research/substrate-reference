@@ -13,7 +13,7 @@ This is the project's second falsification test, complementing Horizon. Robodebt
 
 ## The case
 
-Between 2015 and 2019, Australia's Department of Human Services (later Services Australia) ran the Online Compliance Intervention, commonly called Robodebt. The mechanism:
+Between 2015 and 2019, Australia's Department of Human Services (later Services Australia) ran the income-averaging debt scheme commonly called Robodebt, under successive programme names of which the Online Compliance Intervention was the fully automated phase from mid-2016. The mechanism:
 
 1. The Australian Taxation Office (ATO) provided annual income data for welfare recipients.
 2. The annual figure was divided by 26 to produce a "fortnightly average."
@@ -21,21 +21,21 @@ Between 2015 and 2019, Australia's Department of Human Services (later Services 
 4. Any fortnight where the recipient's reported income was below the averaged figure was treated as "underreport" and the welfare paid that fortnight as "overpaid."
 5. Debts were calculated automatically; recipients were notified and pursued for repayment.
 
-**The mathematical failure**: income averaging assumes income is approximately evenly distributed across the year. For variable-income workers — gig workers, seasonal workers, students who worked part of the year, people with intermittent employment — the assumption fails. A worker who earned AUD 30,000 in just three months would have annual income AUD 30,000 and averaged-fortnightly income AUD 1,154 — but their actual reported fortnightly income was zero for nine months. Robodebt treated every zero fortnight as a "AUD 1,154 underreport" and demanded the welfare back.
+**The mathematical failure**: income averaging assumes income is approximately evenly distributed across the year. For variable-income workers (gig workers, seasonal workers, students who worked part of the year, people with intermittent employment) the assumption fails. A worker who earned AUD 30,000 in just three months would have annual income AUD 30,000 and averaged-fortnightly income AUD 1,154, but their actual reported fortnightly income was zero for nine months. Robodebt treated every zero fortnight as a "AUD 1,154 underreport" and demanded the welfare back.
 
 **The political failure**:
 
 - **Burden of proof reversed**: debts were calculated and the recipient had to prove the calculation was wrong. Most could not (they did not have access to ATO data; the algorithm's reasoning was not explained).
-- **Human review removed**: the algorithm auto-issued debts at scale (400,000+ debts raised over four years).
-- **Authority gap**: the scheme was implemented without proper legal basis. The Federal Court ruled in 2019 (Amato v Commonwealth) that it was unlawful.
+- **Human review removed**: the algorithm auto-issued debts at scale; in May 2020 the government announced the refund of approximately 470,000 debts raised wholly or partly on averaged income.
+- **Authority gap**: the scheme was implemented without proper legal basis. In November 2019, in Amato v Commonwealth, the Commonwealth consented to Federal Court orders declaring that a debt raised on averaged tax office data alone had not been validly made, the information before the decision-maker being incapable of satisfying them that a debt was owed. The Royal Commission into the Robodebt Scheme, reporting in July 2023, found that the scheme had been devised without regard to the social security law and described it as a crude and cruel mechanism, neither fair nor legal.
 - **Aggressive collection**: debt collectors were engaged; tax refunds were withheld; recipients were pursued through reputation-damaging means.
 
 **Consequences**:
 
-- AUD 750M+ collected unlawfully.
-- At least three suicides directly linked.
-- A Royal Commission (2022-2023) found systemic failure across multiple government layers.
-- AUD 1.8 billion settlement.
+- Approximately AUD 721 million of repayments refunded under the May 2020 announcement, alongside the withdrawal of the invalid debts.
+- The Royal Commission heard evidence from families of people who had taken their own lives after receiving debt notices; it did not quantify a number and this file does not.
+- The Royal Commission (established August 2022, reporting July 2023) found systemic failure across multiple government layers.
+- The Prygodicz class action settlement approved by the Federal Court in June 2021, under which the Commonwealth paid AUD 112 million in compensation and costs in addition to the refund programme; the frequently quoted AUD 1.8 billion is the combined value of that payment with the refunds and waived debts, most of it forgone rather than paid.
 
 ## How the substrate is deployed
 

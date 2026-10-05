@@ -9,7 +9,7 @@ A model of the LIBOR (London Interbank Offered Rate) manipulation scandal of 200
 - **Cooperative-substrate aggregation**: the `aggregate_libor` unit is witnessed under a cooperative custodian spanning all panel banks plus the administrator. No single party can produce a valid benchmark unilaterally.
 - **Point-in-time divergence policy**: submissions whose rate diverges from the implied midpoint of declared activity by more than a threshold are refused at submission time.
 - **Drift detection on systematic divergence**: even when individual submissions pass the per-submission policy, systematic bias over a window trips drift on the behaviour-characterised contract.
-- **Cross-operator regulator audit**: the FCA, as an audit operator under a regulator cooperative substrate, can invoke `audit_submissions` on any panel bank. The forensic report lands on the FCA's ledger.
+- **Cross-operator regulator audit**: the FCA, as an audit operator under a regulator cooperative substrate, can invoke `audit_submissions` on any panel bank. The audit act, whose output carries the findings, commits to the FCA's ledger; no report state unit is produced.
 
 ## The case
 
