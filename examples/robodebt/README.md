@@ -106,7 +106,7 @@ flowchart TB
     INV --> OMB_L
 ```
 
-> The architectural difference between v1 and v2 is visible at a glance: v2 binds to the income-variability policy; v1 does not. For James (cv ≈ 1.57), v1 produces a phantom AUD 8,076.92 debt; v2 refuses, citing the variability evidence. For Sarah (cv ≈ 0) the policy permits and both versions return the same result.
+> The architectural difference between v1 and v2 is visible at a glance: v2 binds to the income-variability policy; v1 does not. For James (cv approximately 1.57), v1 produces a phantom AUD 8,076.92 debt; v2 refuses, citing the variability evidence. For Sarah (cv approximately 0) the policy permits and both versions return the same result.
 
 Three operators, federated under two cooperative substrates:
 
@@ -149,8 +149,8 @@ Commonwealth Parliament (constitutional source)
 
 | Claimant | Monthly income | Annual | Variability |
 |---|---|---|---|
-| Sarah | AUD 5,000 every month | AUD 60,000 | cv ≈ 0 (steady) |
-| James | AUD 0 for 8 months; AUD 4-12K in 4 months | AUD 30,000 | cv ≈ 1.57 (highly variable) |
+| Sarah | AUD 5,000 every month | AUD 60,000 | cv approximately 0 (steady) |
+| James | AUD 0 for 8 months; AUD 4-12K in 4 months | AUD 30,000 | cv approximately 1.57 (highly variable) |
 
 ## What the substrate provides, mapped to each Robodebt failure point
 

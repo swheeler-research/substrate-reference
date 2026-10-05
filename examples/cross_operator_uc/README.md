@@ -110,7 +110,7 @@ The output shows:
 1. **Cooperative substrate**: identity (the cooperative credential's content_id) and members (both operators).
 2. **Compiled forms** for `advance_payment_decision` (on DWP) and `right_to_reside_check` (on Home Office). Each has 4 credentials in its authority chain (Parliament, DWP root, Home Office root, cooperative substrate); each is witnessed under the joint quorum custodian.
 3. **Three cases**:
-   - UK applicant → DWP invokes HO via cross-operator → HO permits → DWP approves.
-   - EU applicant → HO refuses → DWP refers to human, citing HO act_id.
-   - Revoked DWP caseworker → DWP refuses *before* the cross-operator call; HO is never invoked.
+   - UK applicant -> DWP invokes HO via cross-operator -> HO permits -> DWP approves.
+   - EU applicant -> HO refuses -> DWP refers to human, citing HO act_id.
+   - Revoked DWP caseworker -> DWP refuses *before* the cross-operator call; HO is never invoked.
 4. **Both ledgers** print separately. DWP has 3 acts; HO has 2 acts. The joint audit trail is reconstructed by matching cross-operator act_id references.

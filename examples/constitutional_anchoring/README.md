@@ -22,7 +22,7 @@ This is the architectural mechanism that, if institutionally and cryptographical
 **This DOES demonstrate**:
 
 - The substrate's authority chain reaches named natural-person credentials by content_id.
-- Election succession works structurally: parliament_v1 → parliament_v2 (different content_id, different parents), supersession recorded on the ledger, downstream invalidation, recompilation.
+- Election succession works structurally: parliament_v1 -> parliament_v2 (different content_id, different parents), supersession recorded on the ledger, downstream invalidation, recompilation.
 - Revocation of a single natural-person credential propagates through the substrate's invalidation surface to every dependent compiled form.
 - Constitutional events are themselves substrate events, audit-visible on the operator's ledger.
 
@@ -80,7 +80,7 @@ flowchart TB
     PARL_V1 -. revocation of David refuses .-> PROC
 ```
 
-> The unit's authority chain walks upward through `civil_servant` → `minister` → `Ministry root` → `parliament_v1` → five named natural persons. Election produces `parliament_v2` with a different content_id (Eleanor replaces Alice); `parliament_v1` is superseded; compiled forms under v1 invalidate; recompilation under v2 restores operation. Revoking David mid-term refuses every invocation whose authority chain reaches him until a fresh constitutional source is constituted.
+> The unit's authority chain walks upward through `civil_servant` -> `minister` -> `Ministry root` -> `parliament_v1` -> five named natural persons. Election produces `parliament_v2` with a different content_id (Eleanor replaces Alice); `parliament_v1` is superseded; compiled forms under v1 invalidate; recompilation under v2 restores operation. Revoking David mid-term refuses every invocation whose authority chain reaches him until a fresh constitutional source is constituted.
 
 A single operator (Ministry) running a trivial functional unit. The interesting structure is the credential graph:
 

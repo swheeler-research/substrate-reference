@@ -66,7 +66,7 @@ flowchart TB
 
 **Operator**: a single DWP substrate.
 
-**Authority chain**: Parliament (constitutional source) → DWP (institutional root) → caseworker credentials.
+**Authority chain**: Parliament (constitutional source) -> DWP (institutional root) -> caseworker credentials.
 
 **Units**:
 

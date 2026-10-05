@@ -107,7 +107,7 @@ constitutional authority
 
 **Units**:
 
-- `endpoint_detection_v1` (good): behaviour-characterised; declares drift criterion (system_crash rate ≤ 0.10 over last 3 observations).
+- `endpoint_detection_v1` (good): behaviour-characterised; declares drift criterion (system_crash rate <= 0.10 over last 3 observations).
 - `endpoint_detection_v2` (faulty Channel File 291 analogue): same contract pattern, but its implementation returns `system_health: "system_crash"` on every event.
 - `canary_status_check` (Canary side): reports whether the canary has cleared a specific unit. Walks the canary's ledger for observations of that unit; checks drift state. Refuses to clear if observations insufficient, or if drift fired, or if any system_crash observed.
 - `deploy_update` (Production side): calls `canary_status_check` cross-operator before accepting a deployment. Refuses if the canary has not cleared.
