@@ -339,6 +339,30 @@ class Runtime:
             return None
         return tuple(getattr(unit, "credential_refs", ()) or ())
 
+    def constitutional_sources_of(self, credential_id: str) -> tuple:
+        """The constitutional sources a credential's authority derives from.
+
+        These are the credentials in its ancestry that reference no parent, so
+        the termini of its authority chain. A policy that needs to know which
+        operator's authority a credential derives from asks this, rather than
+        being told by the invoker.
+
+        The need for it is a defect found in review: two policies resolved a
+        presented credential properly and then compared its chain against a
+        root the invoker had supplied in the inputs. Setting that input to the
+        invoker's own credential defeated the comparison, so the self-issue
+        test could be turned off by the party it exists to catch.
+        """
+        sources = []
+        for cid in self.credential_authority_chain(credential_id):
+            try:
+                unit = self.credentials.get_for_compile(cid)
+            except KeyError:
+                continue
+            if not getattr(unit, "credential_refs", ()):
+                sources.append(cid)
+        return tuple(sources)
+
     def invocation_context(self) -> Optional[InvocationContext]:
         """The context of the act currently being evaluated, or None.
 

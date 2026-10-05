@@ -39,10 +39,37 @@ def implementation(inputs, runtime, invoking_credential_id):
 # refuses queries where the target's jurisdiction matches the executing
 # agency's jurisdiction WITHOUT cooperative-substrate authorisation.
 JURISDICTION_SCOPE_POLICY = """
+def _agency(runtime, credential_id):
+    # Which agency the invoker belongs to is derived from its authority chain,
+    # by finding the operator root the chain passes through. Not the terminal
+    # constitutional source: in this scene both agencies derive from one shared
+    # constitutional authority, so the terminus identifies the federation and
+    # not the member. The operator root's principal is part of its content and
+    # so of its content identity, which is what makes this a derivation the
+    # invoker cannot restate by supplying a different value.
+    for cid in runtime.credential_authority_chain(credential_id):
+        resolved = runtime.resolve_credential(cid)
+        if not resolved.valid:
+            continue
+        name = getattr(resolved.credential, "principal", "") or ""
+        if name.endswith("_root") and name != "constitutional_authority":
+            return name[:-5]
+    return ""
+
+
 def implementation(inputs, runtime, invoking_credential_id):
     target_jurisdiction = inputs.get("target_jurisdiction", "")
-    executing_agency = inputs.get("collecting_agency", "")
     cooperative_authorisation = inputs.get("cooperative_authorisation_credential", "")
+    # Which agency is executing is a claim about the invoker, so it is derived
+    # from the invoking credential's constitutional source rather than read from
+    # the inputs. Reading it from the inputs let an agency declare itself to be
+    # another and so escape the restriction on its own jurisdiction.
+    executing_agency = _agency(runtime, invoking_credential_id)
+    if not executing_agency:
+        raise Exception(
+            "jurisdiction_scope_policy refuses: the invoking credential's "
+            "constitutional source does not identify an executing agency"
+        )
     # If the target's jurisdiction matches the executing agency's,
     # the query is structurally restricted by domestic law.
     if target_jurisdiction == executing_agency:
@@ -110,12 +137,16 @@ def implementation(inputs, runtime, invoking_credential_id):
     # The authorising authority, named in the justification's own content and
     # therefore in its content identity. An expired warrant is revoked and a
     # relabelled one is a different credential.
-    authorising_root = inputs.get("authorising_authority_credential_id", "")
-    if authorising_root and not justification.descends_from(authorising_root):
+    # The authorising authority is established from the substrate. An earlier
+    # version read it from the inputs, which let the querying agency nominate
+    # its own credential as the authority and switch the test off.
+    querier_sources = set(runtime.constitutional_sources_of(invoking_credential_id))
+    justification_sources = set(runtime.constitutional_sources_of(justification_id))
+    if not (justification_sources - querier_sources):
         raise Exception(
             "justification_required_policy refuses: justification " +
-            justification_id[:12] + " does not derive from the authorising "
-            "judicial or parliamentary authority"
+            justification_id[:12] + " derives from no constitutional source "
+            "independent of the querying agency, so it authorises nothing"
         )
 
     # The querying analyst must not be in the justification's own ancestry.
@@ -127,7 +158,7 @@ def implementation(inputs, runtime, invoking_credential_id):
             "cannot be its own justification"
         )
     if invoking_credential_id in justification.authority_chain:
-        if invoking_credential_id != authorising_root:
+        if invoking_credential_id not in querier_sources:
             raise Exception(
                 "justification_required_policy refuses: the querying "
                 "credential is in the justification's authority chain, so the "
@@ -146,10 +177,34 @@ def implementation(inputs, runtime, invoking_credential_id):
 # this cross-operator gate. The gate refuses unless the cooperative
 # substrate's bilateral arrangement permits the specific query category.
 COOPERATIVE_CROSS_QUERY_GATE = """
+def _agency(runtime, credential_id):
+    # Which agency the invoker belongs to is derived from its authority chain,
+    # by finding the operator root the chain passes through. Not the terminal
+    # constitutional source: in this scene both agencies derive from one shared
+    # constitutional authority, so the terminus identifies the federation and
+    # not the member. The operator root's principal is part of its content and
+    # so of its content identity, which is what makes this a derivation the
+    # invoker cannot restate by supplying a different value.
+    for cid in runtime.credential_authority_chain(credential_id):
+        resolved = runtime.resolve_credential(cid)
+        if not resolved.valid:
+            continue
+        name = getattr(resolved.credential, "principal", "") or ""
+        if name.endswith("_root") and name != "constitutional_authority":
+            return name[:-5]
+    return ""
+
+
 def implementation(inputs, runtime, invoking_credential_id):
     target_jurisdiction = inputs.get("target_jurisdiction", "")
-    requesting_agency = inputs.get("requesting_agency", "")
     query_category = inputs.get("query_category", "")
+    # As above: who is requesting is derived, not asserted.
+    requesting_agency = _agency(runtime, invoking_credential_id)
+    if not requesting_agency:
+        raise Exception(
+            "cooperative_cross_query_gate refuses: the invoking credential's "
+            "constitutional source does not identify a requesting agency"
+        )
     # Stylised permission table: which agency pairs may exchange which
     # query categories under the cooperative substrate. A real
     # cooperative substrate would carry these as credential refs to

@@ -753,3 +753,88 @@ def test_the_archive_admits_a_credential_from_any_party():
     # reserves for constitutional sources issued by natural persons, admitted
     # without any attestation of either.
     assert resolved.credential.credential_refs == ()
+
+
+# =============================================================================
+# A policy's own authority parameter must not come from the invoker
+# =============================================================================
+#
+# Found in review, after the conformance condition was written. Two policies
+# resolved a presented credential correctly through the runtime, and then
+# compared its authority chain against a root the invoker had supplied in the
+# inputs. Setting that input to the invoker's own credential made the comparison
+# trivially true, so the party the self-issue test exists to catch could switch
+# the test off. Resolving a credential is not enough if what it is resolved
+# against is asserted.
+
+_ROOT_FROM_INPUTS_POLICY = """
+def implementation(inputs, runtime, invoking_credential_id):
+    cid = inputs.get("escalation_credential_id", "")
+    root = inputs.get("operator_root_credential_id", "")
+    r = runtime.resolve_credential(cid)
+    if not r.valid:
+        raise Exception("refuses: " + r.status)
+    if root and not r.descends_from(root):
+        raise Exception("refuses: does not derive from the operator root")
+    if invoking_credential_id in r.authority_chain and invoking_credential_id != root:
+        raise Exception("refuses: self-issued")
+    return {}
+"""
+
+_ROOT_FROM_SUBSTRATE_POLICY = """
+def implementation(inputs, runtime, invoking_credential_id):
+    cid = inputs.get("escalation_credential_id", "")
+    r = runtime.resolve_credential(cid)
+    if not r.valid:
+        raise Exception("refuses: " + r.status)
+    mine = set(runtime.constitutional_sources_of(invoking_credential_id))
+    theirs = set(runtime.constitutional_sources_of(cid))
+    if not (mine & theirs):
+        raise Exception("refuses: shares no constitutional source with the invoker")
+    if invoking_credential_id in r.authority_chain and invoking_credential_id not in mine:
+        raise Exception("refuses: self-issued")
+    return {}
+"""
+
+
+def test_constitutional_sources_are_the_chains_parentless_termini():
+    runtime, _, root_cid, cw_cid = _wire(clock=FixedClock())
+    assert runtime.constitutional_sources_of(cw_cid) == (root_cid,)
+    assert runtime.constitutional_sources_of(root_cid) == (root_cid,)
+
+
+def test_a_policy_taking_its_root_from_inputs_is_switched_off_by_the_invoker():
+    """The defect, as a test, so it cannot return unnoticed."""
+    runtime, unit, root_cid = _wire_policy(_ROOT_FROM_INPUTS_POLICY)
+    trader = runtime.credentials.put(_cred("desk_trader", (root_cid,)))
+    forged = runtime.credentials.put(
+        _cred("escalation", (trader,), principal="governance:escalation")
+    )
+    # Honest invocation: the forgery is caught.
+    assert isinstance(runtime.invoke(unit.content_id(), {
+        "escalation_credential_id": forged,
+        "operator_root_credential_id": root_cid,
+    }, trader), Refuse)
+    # The invoker nominates itself as the root. The same forgery now passes.
+    assert isinstance(runtime.invoke(unit.content_id(), {
+        "escalation_credential_id": forged,
+        "operator_root_credential_id": trader,
+    }, trader), Permit)
+
+
+def test_a_policy_taking_its_root_from_substrate_state_cannot_be_switched_off():
+    runtime, unit, root_cid = _wire_policy(_ROOT_FROM_SUBSTRATE_POLICY)
+    trader = runtime.credentials.put(_cred("desk_trader", (root_cid,)))
+    forged = runtime.credentials.put(
+        _cred("escalation", (trader,), principal="governance:escalation")
+    )
+    genuine = runtime.credentials.put(
+        _cred("escalation", (root_cid,), principal="governance:escalation")
+    )
+    # No input the invoker controls changes either verdict.
+    for extra in ({}, {"operator_root_credential_id": trader}):
+        args = {"escalation_credential_id": forged}
+        args.update(extra)
+        assert isinstance(runtime.invoke(unit.content_id(), args, trader), Refuse), extra
+    assert isinstance(runtime.invoke(
+        unit.content_id(), {"escalation_credential_id": genuine}, trader), Permit)

@@ -123,14 +123,17 @@ def implementation(inputs, runtime, invoking_credential_id):
             " does not bear the senior-risk escalation authority"
         )
 
-    # Does it derive from this bank's constitutional source? An escalation
-    # credential issued under some other authority chain does not bind here.
-    jpm_root = inputs.get("operator_root_credential_id", "")
-    if jpm_root and not escalation.descends_from(jpm_root):
+    # Does it derive from the same constitutional source as the invoker? The
+    # sources are read from the substrate, not from the inputs. An earlier
+    # version took the operator's root from inputs, which let the invoker
+    # nominate its own credential as the root and so switch this test off.
+    invoker_sources = set(runtime.constitutional_sources_of(invoking_credential_id))
+    escalation_sources = set(runtime.constitutional_sources_of(escalation_id))
+    if not (invoker_sources & escalation_sources):
         raise Exception(
             "position_limit_policy refuses: escalation credential " +
-            escalation_id[:12] + " does not derive from the operator's "
-            "constitutional source"
+            escalation_id[:12] + " shares no constitutional source with the "
+            "invoking credential"
         )
 
     # Did the invoker present its own credential as the escalation? This is
@@ -144,8 +147,8 @@ def implementation(inputs, runtime, invoking_credential_id):
 
     # Is the invoker in the escalation credential's own ancestry? An invoker
     # that issued the escalation has self-issued it by a longer route.
-    if context is not None and invoking_credential_id in escalation.authority_chain:
-        if invoking_credential_id != jpm_root:
+    if invoking_credential_id in escalation.authority_chain:
+        if invoking_credential_id not in invoker_sources:
             raise Exception(
                 "position_limit_policy refuses: the invoking credential is in "
                 "the escalation credential's authority chain, so the "
