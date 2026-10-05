@@ -5,7 +5,7 @@ A model of the LIBOR (London Interbank Offered Rate) manipulation scandal of 200
 ## What this demonstrates
 
 - **Content-addressed submissions**: every submission is a ledger event on the submitting bank's substrate, signed by the trader credential, carrying declared money-market activity context (observed volume, observed rate range) for the relevant window.
-- **Confidence-as-architectural-property**: each panel bank's `submit_rate` declares a `confidence` section in its spec (produces=True, calibration claim — 1.0 at zero divergence, drops to 0 at the policy threshold). The aggregator declares `propagation: "mean"` and the benchmark output carries an aggregate confidence reflecting the mean of submission confidences. Even when individual submissions pass the per-submission policy, low confidences are structurally legible.
+- **Confidence-as-architectural-property**: each panel bank's `submit_rate` declares a `confidence` section in its spec (produces=True, calibration claim: 1.0 at zero divergence, dropping to 0 at the policy threshold). The aggregator declares `propagation: "mean"` and the benchmark output carries an aggregate confidence reflecting the mean of submission confidences. Even when individual submissions pass the per-submission policy, low confidences are structurally legible.
 - **Cooperative-substrate aggregation**: the `aggregate_libor` unit is witnessed under a cooperative custodian spanning all panel banks plus the administrator. No single party can produce a valid benchmark unilaterally.
 - **Point-in-time divergence policy**: submissions whose rate diverges from the implied midpoint of declared activity by more than a threshold are refused at submission time.
 - **Drift detection on systematic divergence**: even when individual submissions pass the per-submission policy, systematic bias over a window trips drift on the behaviour-characterised contract.
@@ -127,7 +127,7 @@ flowchart TB
 
 > Each bank's `submit_rate` unit is behaviour-characterised with a drift criterion on the divergence-from-activity metric. A submission that diverges from declared activity by more than 5 bps is refused at submission time. A pattern of submissions each within 5 bps but systematically biased (e.g., +4 bps) trips drift over a window of 5 observations; subsequent invocations refuse until an authorised reset. The administrator's `aggregate_libor` unit is witnessed under the panel cooperative substrate's quorum custodian; the benchmark cannot be produced without a quorum of panel banks plus the administrator. The FCA invokes `investigate_panel` on its own substrate; that unit cross-operator-invokes `audit_submissions` on a panel bank's substrate. Both invocations are recorded on their respective ledgers.
 
-## What the substrate provides — mapped to each failure point
+## What the substrate provides, mapped to each failure point
 
 | LIBOR failure | Substrate property |
 |---|---|
@@ -146,11 +146,11 @@ python -m examples.libor.run
 
 ## Reading the output
 
-1. **Setup** — five operators, two cooperative substrates, divergence policy on every bank's submit_rate.
-2. **Round 1: honest aggregation** — three banks submit rates within their declared activity. Admin invokes `aggregate_libor` under the panel cooperative substrate; benchmark produced.
-3. **Round 2: manipulation attempt** — BankA's trader submits a rate 10 bps off the activity midpoint. `divergence_policy` refuses at submission time.
-4. **Round 3: systematic bias** — BankA submits four rates at +4 bps off midpoint (within the 5 bps policy threshold). After the fifth observation, drift fires; subsequent submissions refuse with a drift rationale.
-5. **Round 4: regulator audit** — FCA cross-operator-invokes `audit_submissions` on BankA. The forensic report shows every permitted and refused submission with full attribution.
+1. **Setup**: five operators, two cooperative substrates, divergence policy on every bank's submit_rate.
+2. **Round 1: honest aggregation**: three banks submit rates within their declared activity. Admin invokes `aggregate_libor` under the panel cooperative substrate; benchmark produced.
+3. **Round 2: manipulation attempt**: BankA's trader submits a rate 10 bps off the activity midpoint. `divergence_policy` refuses at submission time.
+4. **Round 3: systematic bias**: BankA submits four rates at +4 bps off midpoint (within the 5 bps policy threshold). After the fifth observation, drift fires; subsequent submissions refuse with a drift rationale.
+5. **Round 4: regulator audit**: FCA cross-operator-invokes `audit_submissions` on BankA. The audit act's output shows every permitted and refused submission with full attribution; no report state unit is produced.
 
 ## What this verifies
 

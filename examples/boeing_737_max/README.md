@@ -1,13 +1,13 @@
 # Boeing 737 MAX (MCAS)
 
-A model of the Boeing 737 MAX MCAS failure that killed 346 people across Lion Air 610 (Oct 2018) and Ethiopian Airlines 302 (Mar 2019). Demonstrates the substrate's claims in a safety-critical certification domain — distinct from welfare (Universal Credit, Robodebt), IT operational (Horizon), military (Lavender), and supply chain (SolarWinds, CrowdStrike) cases.
+A model of the Boeing 737 MAX MCAS failure that killed 346 people across Lion Air 610 (Oct 2018) and Ethiopian Airlines 302 (Mar 2019). Demonstrates the substrate's claims in a safety-critical certification domain, distinct from welfare (Universal Credit, Robodebt), IT operational (Horizon), military (Lavender), and supply chain (SolarWinds, CrowdStrike) cases.
 
 The most novel substrate property exercised: **certification-as-joint-witnessing**. The cooperative substrate makes the manufacturer + regulator + operator a quorum on each certification. The 'designated engineering representative' shortcut that effectively let Boeing self-certify MCAS becomes structurally impossible.
 
 ## What this demonstrates
 
-- **Certification as a substrate pattern**: certification is a regular functional unit (`certify_mcas`) that fetches a candidate unit, inspects its declared structure, and invokes the FAA's cert policy units as sub-units. It is parallel to the backtest pattern — a backtest unit inspects ledger history; a certification unit inspects a candidate unit's structure. Neither is a new primitive. Each certification is a substrate act on the FAA's ledger: a permit (certified) or a refusal (denied), fully attributed. Certification is **not** a compile-time refusal — `mcas_v1` is a well-formed unit and compiles; what it fails is certification, which is a separate witnessed act. It is also **not** a runtime invocation policy — those evaluate against an invocation's inputs (a flight's AOA readings), whereas certification gates the unit's *structure*.
-- **Structural certification policies**: the FAA's certification requirements (multi-sensor required for flight-control automation, pilot-override authority required in the unit's authority chain) are functional units invoked as sub-units of `certify_mcas`; each refuses via a first-class substrate refusal. A unit whose spec declares only one sensor for a safety-critical function cannot pass certification — and an uncertified unit is never deployed.
+- **Certification as a substrate pattern**: certification is a regular functional unit (`certify_mcas`) that fetches a candidate unit, inspects its declared structure, and invokes the FAA's cert policy units as sub-units. It is parallel to the backtest pattern: a backtest unit inspects ledger history; a certification unit inspects a candidate unit's structure. Neither is a new primitive. Each certification is a substrate act on the FAA's ledger: a permit (certified) or a refusal (denied), fully attributed. Certification is **not** a compile-time refusal: `mcas_v1` is a well-formed unit and compiles; what it fails is certification, which is a separate witnessed act. It is also **not** a runtime invocation policy: those evaluate against an invocation's inputs (a flight's AOA readings), whereas certification gates the unit's *structure*.
+- **Structural certification policies**: the FAA's certification requirements (multi-sensor required for flight-control automation, pilot-override authority required in the unit's authority chain) are functional units invoked as sub-units of `certify_mcas`; each refuses via a first-class substrate refusal. A unit whose spec declares only one sensor for a safety-critical function cannot pass certification, and an uncertified unit is never deployed.
 - **Pilot-override-as-credential**: the pilot's authority to override automation is a credential in the unit's authority chain, not a paragraph in a flight manual. `certify_mcas` checks the candidate's authority chain for the pilot credential; a unit that does not reference it fails certification.
 - **Confidence-as-architectural-property for sensor fusion**: `mcas_v2` declares a `confidence` section in its spec (produces=True, calibration claim, acceptance_band). The confidence value is computed at runtime from sensor agreement (1.0 at zero disagreement; drops linearly to 0 at 5 degrees). The unit refuses to act when confidence falls below the actuation threshold; the refusal is the structural refer-to-human signal.
 - **Cross-fleet drift propagation**: behaviour-characterised contracts plus cooperative-substrate cross-fleet reporting make inter-airline evidence sharing structural rather than voluntary.
@@ -95,7 +95,7 @@ flowchart TB
     MCAS2 -. refused: AOA disagreement >5 deg .-> ET_L
 ```
 
-> Certification is a substrate act, not a compile check. `certify_mcas` (witnessed under the cooperative substrate's quorum custodian) fetches a candidate unit, inspects its declared structure, and invokes `multi_sensor_required` and `pilot_override_required` as sub-units. mcas_v1 compiles fine but fails certification — it declares one sensor — and the certification act is a refusal on the FAA's ledger. mcas_v2 declares two sensors and references the `captain_authority` credential, so certification permits. LionAir deploys first as canary; Ethiopian queries LionAir's fleet observation report cross-operator before deploying. On a flight with left AOA = 75° and right = 6°, mcas_v2 refuses to command nose-down — the architectural moment the real aircraft did not have.
+> Certification is a substrate act, not a compile check. `certify_mcas` (witnessed under the cooperative substrate's quorum custodian) fetches a candidate unit, inspects its declared structure, and invokes `multi_sensor_required` and `pilot_override_required` as sub-units. mcas_v1 compiles fine but fails certification (it declares one sensor) and the certification act is a refusal on the FAA's ledger. mcas_v2 declares two sensors and references the `captain_authority` credential, so certification permits. LionAir deploys first as canary; Ethiopian queries LionAir's fleet observation report cross-operator before deploying. On a flight with left AOA = 75° and right = 6°, mcas_v2 refuses to command nose-down, the architectural moment the real aircraft did not have.
 
 Four operators federated under a cooperative substrate:
 
@@ -128,7 +128,7 @@ US constitutional authority
 - `multi_sensor_required_policy` (FAA): refuses if the candidate unit's spec declares fewer than two sensors. Invoked as a sub-unit by `certify_mcas`.
 - `fleet_observation_report` (LionAir / Ethiopian): cross-fleet observation report exposed via cooperative substrate; aggregates nose-down events from the airline's ledger.
 
-## What the substrate provides — mapped to each failure point
+## What the substrate provides, mapped to each failure point
 
 | 737 MAX failure | Substrate property |
 |---|---|
@@ -148,7 +148,7 @@ python -m examples.boeing_737_max.run
 
 ## Reading the output
 
-1. **Setup** — four operators federated; FAA's two cert policies and `certify_mcas` registered; `certify_mcas` witnessed under the cooperative substrate quorum.
+1. **Setup**: four operators federated; FAA's two cert policies and `certify_mcas` registered; `certify_mcas` witnessed under the cooperative substrate quorum.
 2. **Round 1: mcas_v1**: Boeing submits. The FAA invokes `certify_mcas` against it; `multi_sensor_required_policy` refuses as a sub-unit; the certification act is a **refusal** on the FAA's ledger. mcas_v1 is never registered on the airlines' runtimes. **No flight.**
 3. **Round 2: mcas_v2**: Boeing submits. `certify_mcas` invokes both cert policies as sub-units; both permit; the certification act is a **permit** on the FAA's ledger. mcas_v2 is registered on the airline runtimes for deployment.
 4. **LionAir (canary) routine takeoffs**: five flights with normal AOA readings; mcas_v2 stays out of action; observations within bounds.
@@ -157,7 +157,7 @@ python -m examples.boeing_737_max.run
 
 ## What this verifies
 
-The substrate's architectural commitments — content-addressing of safety-critical software, cooperative-substrate joint witnessing for certification, structural cert policies, pilot-override-as-credential, refer-to-human on sensor disagreement, cross-fleet drift propagation — operate against a safety-critical certification scenario the same way they operate against welfare, IT, military, or supply-chain scenarios. Compositional uniformity holds in a new domain.
+The substrate's architectural commitments (content-addressing of safety-critical software, cooperative-substrate joint witnessing for certification, structural cert policies, pilot-override-as-credential, refer-to-human on sensor disagreement, cross-fleet drift propagation) operate against a safety-critical certification scenario the same way they operate against welfare, IT, military, or supply-chain scenarios. Compositional uniformity holds in a new domain.
 
 What it does not verify:
 

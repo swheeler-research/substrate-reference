@@ -1,8 +1,8 @@
 # Robodebt (Services Australia)
 
-A model of the Australian Robodebt scheme — the algorithmic welfare debt recovery programme that pursued hundreds of thousands of people for debts they did not owe — built in the substrate, with cross-operator audit by the Commonwealth Ombudsman. Each of the five documented Robodebt failure points is mapped to the substrate property that would have structurally prevented it.
+A model of the Australian Robodebt scheme, the algorithmic welfare debt recovery programme that pursued hundreds of thousands of people for debts that had not been validly raised, built in the substrate, with cross-operator audit by the Commonwealth Ombudsman. Each of the five documented Robodebt failure points is mapped to the substrate property that addresses it.
 
-This is the project's second falsification test, complementing Horizon. Robodebt is structurally a different failure from Horizon: where Horizon was about bugs and unattributable modifications, Robodebt was about a known-flawed algorithm being deployed without preconditions, with the burden of proof reversed and human review removed. The substrate's answer is correspondingly different — preconditions structurally enforced, refusal as the first-class output, authority chain grounded in legislation, cross-operator audit through cooperative substrate.
+This is the project's second falsification test, complementing Horizon. Robodebt is structurally a different failure from Horizon: where Horizon was about bugs and unattributable modifications, Robodebt was about a known-flawed algorithm being deployed without preconditions, with the burden of proof reversed and human review removed. The substrate's answer is correspondingly different: preconditions structurally enforced, refusal as the first-class output, authority chain grounded in legislation, cross-operator audit through cooperative substrate.
 
 ## What this demonstrates
 
@@ -152,7 +152,7 @@ Commonwealth Parliament (constitutional source)
 | Sarah | AUD 5,000 every month | AUD 60,000 | cv ≈ 0 (steady) |
 | James | AUD 0 for 8 months; AUD 4-12K in 4 months | AUD 30,000 | cv ≈ 1.57 (highly variable) |
 
-## What the substrate provides — mapped to each Robodebt failure point
+## What the substrate provides, mapped to each Robodebt failure point
 
 | Robodebt failure | Substrate property |
 |---|---|
@@ -162,7 +162,7 @@ Commonwealth Parliament (constitutional source)
 | 4. Scheme not legally authorised | **Authority chain must trace to constitutional source**. Every unit's authority chain includes credentials tracing to Parliament. An algorithm without that chain cannot be compiled or invoked. The Federal Court's 2019 finding would have been structural rather than retrospective. |
 | 5. Audit and appeal structurally biased | **Cooperative-substrate audit by Ombudsman**. The Ombudsman has structurally-committed audit rights; audit invocations are recorded on both ledgers; the forensic record is preserved independently of Services Australia's records. |
 
-What the substrate does *not* prevent: an operator from choosing to deploy v1 (the no-preconditions algorithm) in the first place. The substrate makes the choice visible — every audit can see which version was used for each calculation, whether preconditions were declared, whether they were checked. The political pressure to deploy v2 rather than v1 then becomes external and structural (visible to regulators, oversight bodies, the press) rather than internal and procedural (a matter of which configuration switch the IT department happened to flip).
+What the substrate does *not* prevent: an operator from choosing to deploy v1 (the no-preconditions algorithm) in the first place. The substrate makes the choice visible: every audit can see which version was used for each calculation, whether preconditions were declared, whether they were checked. The political pressure to deploy v2 rather than v1 then becomes external and structural (visible to regulators, oversight bodies, the press) rather than internal and procedural (a matter of which configuration switch the IT department happened to flip).
 
 ## Running it
 

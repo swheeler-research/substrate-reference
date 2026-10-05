@@ -1,13 +1,13 @@
 # Universal Credit (cross-operator)
 
-The same Universal Credit advance payment decision as the single-operator example, but now decomposed across two operators (DWP and Home Office) composing under a cooperative substrate. Demonstrates that the substrate's machinery for cross-operator composition is the same machinery as for single-operator composition — there is no new architecture, only new wiring.
+The same Universal Credit advance payment decision as the single-operator example, but now decomposed across two operators (DWP and Home Office) composing under a cooperative substrate. Demonstrates that the substrate's machinery for cross-operator composition is the same machinery as for single-operator composition: there is no new architecture, only new wiring.
 
 ## What this demonstrates
 
 - Two independent operators each running their own substrate, each retaining sovereignty over their own ledger and custodian.
 - A **cooperative substrate** as a credential pattern (not a new primitive): a credential whose parent references span both operator roots. Units that reference this credential have both roots in their authority chains, which is what permits credentials from either operator to be delegated under the other's units.
 - **Cross-operator invocation** through `runtime.invoke_in()` routing via the cooperative substrate's federation registry.
-- **Joint witnessing**: cross-operator compiled forms are signed by both operators' Ed25519 custodians under a quorum custodian — neither operator can unilaterally produce a valid witness for a cooperative-substrate unit.
+- **Joint witnessing**: cross-operator compiled forms are signed by both operators' Ed25519 custodians under a quorum custodian; neither operator can unilaterally produce a valid witness for a cooperative-substrate unit.
 - **Delegation across operator boundaries**: a DWP-rooted caseworker credential is structurally delegated under a Home Office unit, because the cooperative substrate brings DWP's root into the Home Office unit's authority chain.
 - **Ledger sovereignty**: each operator owns its own ledger; the joint audit trail is the union of the two ledgers, joinable on cross-operator act_id references carried in act outputs.
 
@@ -15,7 +15,7 @@ This is the architectural test of compositional uniformity: if the substrate's c
 
 ## The case
 
-Real UK welfare decisions often touch multiple authorities. A Universal Credit applicant's right to claim depends on their right-to-reside status, which is held by the Home Office. Currently this is coordinated through bilateral data-sharing arrangements, system integrations, and political agreements. The substrate's question is: what would it look like for these arrangements to be substrate primitives — content-addressed, jointly witnessed, refusable, audit-traceable across operator boundaries?
+Real UK welfare decisions often touch multiple authorities. A Universal Credit applicant's right to claim depends on their right-to-reside status, which is held by the Home Office. Currently this is coordinated through bilateral data-sharing arrangements, system integrations, and political agreements. The substrate's question is: what would it look like for these arrangements to be substrate primitives: content-addressed, jointly witnessed, refusable, audit-traceable across operator boundaries?
 
 In this demonstration:
 
@@ -93,7 +93,7 @@ UK Parliament (constitutional source)
 ## What the substrate provides
 
 - **Delegation crosses operator boundaries by construction**, not by ad-hoc convention. The cooperative substrate brings both operator roots into cross-operator units' authority chains; the runtime's standard delegation check (which has not changed) handles the cross-operator case automatically.
-- **Both operators record their own ledger entries**. DWP's act records what DWP did (invoke `advance_payment_decision`, get the result). Home Office's act records what Home Office did (perform RTR check, return the verdict). The joint audit trail is reconstructable by walking both — operators retain sovereignty over their records.
+- **Both operators record their own ledger entries**. DWP's act records what DWP did (invoke `advance_payment_decision`, get the result). Home Office's act records what Home Office did (perform RTR check, return the verdict). The joint audit trail is reconstructable by walking both; operators retain sovereignty over their records.
 - **Refusal propagates cleanly across operator boundaries**. If Home Office's RTR refuses, the DWP act records "refer to human, citing HO act_id X." A regulator following the audit trail can follow the cross-operator reference.
 - **Joint witnessing means neither side can unilaterally rewrite cross-operator compiled forms**. The cooperative substrate is, structurally, the formal arrangement.
 

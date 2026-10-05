@@ -2,7 +2,7 @@
 
 A stylised model of cross-jurisdictional signals-intelligence mass surveillance against the substrate's commitments. Informed by the 2013 Snowden disclosures (PRISM, XKeyscore, Tempora, the bilateral Five Eyes query-exchange arrangements) but not a reconstruction of any specific real system. We do not have authoritative information about any current intelligence agency's internal architecture; the public record describes outcomes and structural arrangements.
 
-This is the substrate's most ambitious falsification test, by some distance. It is also the one most starkly bounded by what code cannot do: the substrate cannot prevent governments from doing what they choose to do; it cannot prevent constitutional sources from being captured; it cannot force oversight bodies to look. What it CAN demonstrate is the architectural mechanism that would make systemic surveillance structurally legible to its constitutional sources — turning the question from "are the authorising bodies being deceived about scope?" into "are the authorising bodies looking at the ledger?".
+This is the substrate's most ambitious falsification test, by some distance. It is also the one most starkly bounded by what code cannot do: the substrate cannot prevent governments from doing what they choose to do; it cannot prevent constitutional sources from being captured; it cannot force oversight bodies to look. What it CAN demonstrate is the architectural mechanism that would make systemic surveillance structurally legible to its constitutional sources, turning the question from "are the authorising bodies being deceived about scope?" into "are the authorising bodies looking at the ledger?".
 
 ## What this demonstrates
 
@@ -142,7 +142,7 @@ constitutional authority
 - `cooperative_cross_query_gate` (cooperative-substrate authorised): the cross-jurisdictional gate. Permits queries only for (requesting, target, category) tuples in the cooperative substrate's permitted table.
 - `agency_audit` / `investigate_agency`: cross-operator audit pair.
 
-## What the substrate provides — mapped to each failure point
+## What the substrate provides, mapped to each failure point
 
 | Five Eyes failure | Substrate property |
 |---|---|
@@ -170,17 +170,18 @@ python -m examples.five_eyes.run
 
 The demonstration walks through:
 
-1. **Setup** — three operators, two cooperative substrates, two policies, cross-jurisdictional gate.
-2. **Query 1** — AgencyA analyst queries AgencyA's data on own-jurisdiction subject, no cooperative authorisation. **Refused** by `jurisdiction_scope_policy`.
-3. **Query 2** — same as 1, but analyst attempts to obtain cooperative authorisation first. The cooperative gate refuses (self-jurisdiction queries are not in the bilateral cooperative substrate's permitted set). **Refused at the gate, then refused by the policy.**
-4. **Query 3** — cross-jurisdictional: AgencyA queries AgencyB's data under category `counter_terrorism_subjects`. The cross-gate permits (this category IS in the permitted set). **Authorised at the gate.**
-5. **Query 4** — same as 3, but category `bulk_metadata`. **Refused at the gate** — not in permitted set.
-6. **Query 5** — query with no justification credential. **Refused** by `justification_required_policy`.
-7. **Oversight investigation** — OversightCommittee cross-operator audits AgencyA. Forensic report on Oversight's own ledger shows every permitted and refused query with full attribution.
+1. **Setup**: three operators, two cooperative substrates, two policies, cross-jurisdictional gate.
+2. **Query 1**: AgencyA analyst queries AgencyA's data on own-jurisdiction subject, no cooperative authorisation. **Refused** by `jurisdiction_scope_policy`.
+3. **Query 2**: same as 1, but analyst attempts to obtain cooperative authorisation first. The cooperative gate refuses (self-jurisdiction queries are not in the bilateral cooperative substrate's permitted set). **Refused at the gate, then refused by the policy.**
+4. **Query 3**: cross-jurisdictional: AgencyA queries AgencyB's data under category `counter_terrorism_subjects`. The cross-gate permits (this category IS in the permitted set). **Authorised at the gate.**
+5. **Query 4**: same as 3, but category `bulk_metadata`. **Refused at the gate**, not in the permitted set.
+6. **Query 5**: query with no justification credential. **Refused** by `justification_required_policy`.
+7. **Queries 5a and 5b**: a warrant the agency wrote for itself, refused because the querying credential is in its authority chain; and a court order that has been revoked, refused because the policy reads the invalidation surface. Both resolve the credential rather than reading a value the caller supplied, which is what the earlier version of the policy did.
+8. **Oversight investigation**: OversightCommittee cross-operator audits AgencyA. The audit act commits to Oversight's own ledger with every permitted and refused query, fully attributed, in its output; no report state unit is produced.
 
 ## What this verifies and what it does not
 
-**Verifies**: the substrate's architectural commitments — cooperative-substrate cross-jurisdictional gating, ledger-based scope visibility, structural policies on query categories, cross-operator independent audit, refusal as first-class output with full attribution — operate against systemic mass-surveillance arrangements the same way they operate against any other cross-operator scenario. Compositional uniformity holds in a domain that is structurally adversarial to the substrate's commitments.
+**Verifies**: the substrate's architectural commitments (cooperative-substrate cross-jurisdictional gating, ledger-based scope visibility, structural policies on query categories, cross-operator independent audit, refusal as first-class output with full attribution) operate against systemic mass-surveillance arrangements the same way they operate against any other cross-operator scenario. Compositional uniformity holds in a domain that is structurally adversarial to the substrate's commitments.
 
 **Does not verify**:
 

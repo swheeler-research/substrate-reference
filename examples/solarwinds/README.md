@@ -106,7 +106,7 @@ constitutional authority
 
 The cooperative substrate's quorum custodian witnesses cross-operator units. Customer policy: deployment requires the auditor's signature (without it, the cooperative-substrate quorum is unmet).
 
-## What the substrate provides — mapped to each failure point
+## What the substrate provides, mapped to each failure point
 
 | SolarWinds failure | Substrate property |
 |---|---|
@@ -125,7 +125,7 @@ python -m examples.solarwinds.run
 
 ## Reading the output
 
-1. **Setup** — three operators, cooperative substrate, two vendor artefacts with different content_ids.
+1. **Setup**: three operators, cooperative substrate, two vendor artefacts with different content_ids.
 2. **Deployment 1**: legitimate build. BuildVerifier inspects, finds no known-bad indicators, witnesses. Customer accepts deployment.
 3. **Deployment 2**: trojanised build. BuildVerifier inspects, finds SUNBURST-style C2 hostnames, refuses to witness. Customer's deployment refused (cooperative-substrate quorum unmet).
 4. **Audit**: customer ledger walk shows the accepted and refused deployments with the inspection act_ids cross-referenced.

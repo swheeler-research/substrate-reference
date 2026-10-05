@@ -1,12 +1,12 @@
 # Constitutional anchoring
 
-A simulation of the substrate's authority chain terminating at natural-person credentials — the architectural mechanism the substrate uses to ground all authority in specific human beings. Closes the architectural loop on what was previously the substrate's most-discussed unfilled commitment.
+A simulation of the substrate's authority chain terminating at natural-person credentials, the architectural mechanism the substrate uses to ground all authority in specific human beings. It demonstrates the structural terminus; how natural personhood is attested at that terminus is a limit the architecture states rather than a mechanism it specifies, and this demonstration does not close it.
 
 ## What this demonstrates
 
-The substrate's central claim is that the authority chain terminates at the natural persons whose constitutional source credentials ground every authority. Throughout the other demonstrations, the constitutional source has been a string-labelled credential — `parliament_uk`, `crown`, `constitutional_authority` — with a randomly-generated Ed25519 keypair. The chain terminated at a label.
+The substrate's central claim is that the authority chain terminates at the natural persons whose constitutional source credentials ground every authority. Throughout the other demonstrations, the constitutional source has been a string-labelled credential (`parliament_uk`, `crown`, `constitutional_authority`) with a randomly-generated Ed25519 keypair. The chain terminated at a label.
 
-This demonstration shows the architectural mechanism that would terminate the recursion at natural persons. **Natural-person anchoring is the cooperative-substrate pattern applied at the root**: a constitutional source credential is a credential whose parent references are natural-person credentials. The substrate's existing machinery — credentials with parent refs, authority-chain walking, supersession, revocation — composes to give it. No new architectural mechanism is required.
+This demonstration shows the architectural mechanism that would terminate the recursion at natural persons. **Natural-person anchoring is the cooperative-substrate pattern applied at the root**: a constitutional source credential is a credential whose parent references are natural-person credentials. The substrate's existing machinery (credentials with parent refs, authority-chain walking, supersession, revocation) composes to give it. No new architectural mechanism is required.
 
 Four substrate properties become concretely visible:
 
@@ -96,7 +96,7 @@ parliament_v1 (constitutional source; content_id derived from member set)
 
 The unit's authority chain starts at parliament_v1 and walks upward to the five MPs. The substrate's compile-at-commit collects parliament_v1's transitive ancestry into the compiled form's authority_chain. The runtime's authority-chain check, on every invocation, verifies each of these credentials (including each natural-person credential).
 
-## What the substrate provides — mapped to the natural-person commitment
+## What the substrate provides, mapped to the natural-person commitment
 
 | Substrate claim | Architectural mechanism | What this demonstration shows |
 |---|---|---|
@@ -116,11 +116,11 @@ python -m examples.constitutional_anchoring.run
 
 The demonstration walks through five sections:
 
-1. **Setup** — five MPs, parliament_v1 quorum, derived ministerial and civil-servant credentials, process_application unit.
-2. **Authority chain visibility** — walks the unit's authority chain upward, printing the tree. Visibly terminates at five named natural persons.
-3. **Normal operation** — civil_servant_v1 invokes process_application_v1; permit; application processed.
-4. **Election** — Alice Brown replaced by Eleanor Martin; parliament_v2 minted (different content_id); parliament_v1 superseded; old compiled form refuses; new chain reconstituted; new compiled form permits.
-5. **Revocation** — David Singh resigns; his credential revoked; the substrate's authority-chain check refuses; reconstitution would require parliament_v3.
+1. **Setup**: five MPs, parliament_v1 quorum, derived ministerial and civil-servant credentials, process_application unit.
+2. **Authority chain visibility**: walks the unit's authority chain upward, printing the tree. Visibly terminates at five named natural persons.
+3. **Normal operation**: civil_servant_v1 invokes process_application_v1; permit; application processed.
+4. **Election**: Alice Brown replaced by Eleanor Martin; parliament_v2 minted (different content_id); parliament_v1 superseded; old compiled form refuses; new chain reconstituted; new compiled form permits.
+5. **Revocation**: David Singh resigns; his credential revoked; the substrate's authority-chain check refuses; reconstitution would require parliament_v3.
 
 Plus a six-act ledger summary and the explicit "demonstrated vs not demonstrated" closing.
 

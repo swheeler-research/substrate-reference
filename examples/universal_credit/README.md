@@ -70,8 +70,8 @@ flowchart TB
 
 **Units**:
 
-- `eligibility_check`, `fraud_risk_assessment`, `identity_verification` — three functional units, each with its own implementation (Python source as content-addressed state units).
-- `advance_payment_decision` — the composing unit; its implementation invokes each sub-unit through `runtime.invoke()` and combines the outputs into a decision.
+- `eligibility_check`, `fraud_risk_assessment`, `identity_verification`: three functional units, each with its own implementation (Python source as content-addressed state units).
+- `advance_payment_decision`: the composing unit; its implementation invokes each sub-unit through `runtime.invoke()` and combines the outputs into a decision.
 
 **Policies** (all functional units, brought into binding by credentials with `policy_refs`):
 
@@ -104,12 +104,12 @@ python -m examples.universal_credit.run
 
 The output walks through:
 
-1. **Compiled form** — authority chain, policies in scope, witness signature.
-2. **Cases 1-5** — invocations with various inputs:
+1. **Compiled form**: authority chain, policies in scope, witness signature.
+2. **Cases 1-5**: invocations with various inputs:
    - Case 1: valid inputs, all policies permit, advance payment approved.
-   - Case 2: retention beyond the rolled-up cap (30 days) — refused with rationale naming the 30-day policy.
-   - Case 3: purpose outside the rolled-up allowed set — refused.
-   - Case 4: confidence below the rolled-up floor — refused.
-   - Case 5: invoking credential revoked — refused before any policy is invoked.
-3. **Ledger** — every invocation (permits and refusals alike) produces an act; the chain is hash-verifiable end to end.
-4. **Case 6** — incomposable policies refused at compile-at-commit (TypeMismatch), no runtime invocation occurs.
+   - Case 2: retention beyond the rolled-up cap (30 days): refused with rationale naming the 30-day policy.
+   - Case 3: purpose outside the rolled-up allowed set: refused.
+   - Case 4: confidence below the rolled-up floor: refused.
+   - Case 5: invoking credential revoked: refused before any policy is invoked.
+3. **Ledger**: every invocation (permits and refusals alike) produces an act; the chain is hash-verifiable end to end.
+4. **Case 6**: incomposable policies refused at compile-at-commit (TypeMismatch), no runtime invocation occurs.

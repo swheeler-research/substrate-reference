@@ -4,14 +4,14 @@ A model of the 19 July 2024 CrowdStrike Falcon "Channel File 291" outage, built 
 
 ## What this demonstrates
 
-- **Code/data unification**: the substrate does not architecturally distinguish "code" from "data" updates. Every behaviour-affecting artefact is a content-addressed state unit; every deployment goes through the same witnessing and policy checks. The Channel File 291 mistake — treating a behaviour-affecting "data" update as exempt from "code" update validation — is architecturally impossible.
+- **Code/data unification**: the substrate does not architecturally distinguish "code" from "data" updates. Every behaviour-affecting artefact is a content-addressed state unit; every deployment goes through the same witnessing and policy checks. The Channel File 291 mistake, treating a behaviour-affecting "data" update as exempt from "code" update validation, is architecturally impossible.
 - **Staged deployment via cooperative substrate**: production customers deploy only after a canary cohort has cleared the update. Cross-operator status check makes this structural.
 - **Drift detection on behaviour-characterised units**: an update whose output distribution leaves declared calibration triggers drift; the canary cohort surfaces it before production sees it.
 - **Structural rollback**: previous compiled forms are content-addressed and retained; rollback is invoking the prior content_id, not a special operation.
 
 ## The case
 
-On 19 July 2024 at approximately 04:09 UTC, CrowdStrike pushed Channel File 291 — a "rapid response content" update — to Falcon endpoint protection software running on Windows. The file contained a logic error that caused the Falcon driver (running in kernel space) to access invalid memory; Windows responded with Blue Screen of Death and entered a boot loop.
+On 19 July 2024 at approximately 04:09 UTC, CrowdStrike pushed a Rapid Response Content update to Channel File 291 to Falcon endpoint protection software running on Windows. On CrowdStrike's own root cause analysis, the content was the first to use a twenty-first input parameter, the Content Validator assessed it expecting twenty-one inputs while the Content Interpreter expected twenty, and the mismatch met a latent out-of-bounds read in the kernel-mode sensor; Windows responded with Blue Screen of Death and entered a boot loop.
 
 The update was distributed automatically to all Falcon Windows customers within hours. Approximately 8.5 million Windows devices crashed. The impact:
 
@@ -22,7 +22,7 @@ The update was distributed automatically to all Falcon Windows customers within 
 - Emergency services (911 / 999 systems) degraded in multiple jurisdictions
 - Estimated direct losses to Fortune 500: USD 5.4 billion; total economic impact estimated above USD 10 billion
 
-CrowdStrike's post-mortem identified that "rapid response content" updates (channel files) used a different validation path from binary updates. The architectural distinction between code and data — security-coherent in some contexts — was security-incoherent here: the channel file could affect kernel-level behaviour but did not go through the same validation as a binary update.
+CrowdStrike's post-mortem identified that "rapid response content" updates (channel files) used a different validation path from binary updates. The architectural distinction between code and data, security-coherent in some contexts, was security-incoherent here: the channel file could affect kernel-level behaviour but did not go through the same validation as a binary update.
 
 The substrate-relevant failure points:
 
@@ -112,7 +112,7 @@ constitutional authority
 - `canary_status_check` (Canary side): reports whether the canary has cleared a specific unit. Walks the canary's ledger for observations of that unit; checks drift state. Refuses to clear if observations insufficient, or if drift fired, or if any system_crash observed.
 - `deploy_update` (Production side): calls `canary_status_check` cross-operator before accepting a deployment. Refuses if the canary has not cleared.
 
-## What the substrate provides — mapped to each failure point
+## What the substrate provides, mapped to each failure point
 
 | CrowdStrike failure | Substrate property |
 |---|---|
@@ -131,7 +131,7 @@ python -m examples.crowdstrike.run
 
 ## Reading the output
 
-1. **Setup** — three operators, cooperative substrate, two endpoint detection units (v1 good, v2 faulty).
+1. **Setup**: three operators, cooperative substrate, two endpoint detection units (v1 good, v2 faulty).
 2. **Round 1 (v1)**: canary observes baseline events; no drift; production deploys v1.
 3. **Round 2 (v2)**: canary observes events; every event reports system_crash; rate-in drift criterion fires immediately; subsequent canary invocations of v2 refuse.
 4. **Production attempts to deploy v2**: refused because the canary status check reports drift.

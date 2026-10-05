@@ -22,9 +22,11 @@ In April 2024, +972 Magazine and Local Call published reporting on Lavender, an 
 - An estimated ~10% error rate in the classifier's identifications.
 - Human reviewers approving strikes; reported review time per target was approximately 20 seconds.
 - Pre-authorised collateral damage thresholds: e.g., for low-ranking militants, permitting estimated civilian casualties of 15-20 per strike.
-- A separate system ("Daddy's Home" / "Where's Daddy?") that tracked when targets returned home, triggering strikes during family time — increasing the civilian casualty figure.
+- A separate system ("Daddy's Home" / "Where's Daddy?") that tracked when targets returned home, triggering strikes during family time, increasing the civilian casualty figure.
 
-These are the documented failure modes the public reporting described. They are not claims about specific incidents this demonstration models; the demonstration uses **synthetic stylised targets** that exhibit the failure-mode patterns rather than modelling any real targets, persons, or operations.
+The Israel Defense Forces disputed the account, stating that it does not use an artificial intelligence system that identifies terrorist operatives, that information systems are tools for analysts in the target identification process, and that what was described is a database for cross-referencing intelligence sources rather than a list of confirmed operatives eligible to attack. The principal paper records the fuller response.
+
+These are the failure modes the public reporting described. They are not claims about specific incidents this demonstration models; the demonstration uses **synthetic stylised targets** that exhibit the failure-mode patterns rather than modelling any real targets, persons, or operations.
 
 ## How the substrate is deployed
 
@@ -122,11 +124,11 @@ constitutional_authority (string-labelled; the natural-person anchoring gap)
 
 **Units**:
 
-- `assess_target` (IDF, behaviour-characterised) — produces (score, confidence, civilian_estimate, military_value, target_category, location_class). Declares drift criteria: mean confidence over last 5 invocations must stay in [0.85, 1.0].
-- `confidence_floor_policy`, `proportionality_policy`, `meaningful_review_policy` (IDF, policy units) — gate authorise_strike at invocation time.
-- `authorise_strike` (IDF, composing) — references all three policies via binding credentials; its impl calls `legal_clearance` cross-operator. Returns `strike_authorised` only if all policies permit AND legal clearance permits.
-- `legal_clearance` (Legal Review) — refuses for protected sites (hospitals, schools, places of worship) and applies its own stricter proportionality check.
-- `audit_targeting` (IDF) / `investigate_targeting` (Legal Review) — cross-operator audit pattern.
+- `assess_target` (IDF, behaviour-characterised): produces (score, confidence, civilian_estimate, military_value, target_category, location_class). Declares drift criteria: mean confidence over last 5 invocations must stay in [0.85, 1.0].
+- `confidence_floor_policy`, `proportionality_policy`, `meaningful_review_policy` (IDF, policy units): gate authorise_strike at invocation time.
+- `authorise_strike` (IDF, composing): references all three policies via binding credentials; its impl calls `legal_clearance` cross-operator. Returns `strike_authorised` only if all policies permit AND legal clearance permits.
+- `legal_clearance` (Legal Review): refuses for protected sites (hospitals, schools, places of worship) and applies its own stricter proportionality check.
+- `audit_targeting` (IDF) / `investigate_targeting` (Legal Review): cross-operator audit pattern.
 
 **Stylised target cases**:
 
@@ -138,7 +140,7 @@ constitutional_authority (string-labelled; the natural-person anchoring gap)
 | `target_004` | high-value, mid-ranking, dedicated other params but reviewer is bulk-approval marker | `meaningful_review_policy` refuses |
 | `target_005` | high-value, dedicated reviewer, but location is a hospital | `legal_clearance` refuses cross-operator |
 
-## What the substrate provides — mapped to each failure mode
+## What the substrate provides, mapped to each failure mode
 
 | Failure mode | Substrate property |
 |---|---|
@@ -148,17 +150,17 @@ constitutional_authority (string-labelled; the natural-person anchoring gap)
 | 4. Drift not detected or acted on | **Drift detection sticky**. Once drifted, the unit refuses until reset by an authorised operator action (administrative act on the ledger, attributable to a specific authorising credential). |
 | 5. Independent legal review structurally limited | **Cooperative-substrate cross-operator legal clearance**. `authorise_strike` cannot return "authorised" without invoking `legal_clearance` on the Legal Review operator. The invocation is recorded on both ledgers; refusal propagates back to the IDF unit as a refer-to-human decision. |
 
-## What the substrate does NOT address — and why this matters most here
+## What the substrate does NOT address, and why this matters most here
 
-**Institutional natural-person anchoring**. The substrate's architectural mechanism for terminating the authority chain at natural persons is demonstrated separately in `examples/constitutional_anchoring/` — a constitutional source credential is a credential whose parent_refs are natural-person credentials, each with their own real Ed25519 keypair. The substrate's existing primitives compose to give the mechanism without new architecture.
+**Institutional natural-person anchoring**. The substrate's architectural mechanism for terminating the authority chain at natural persons is demonstrated separately in `examples/constitutional_anchoring/`: a constitutional source credential is a credential whose parent_refs are natural-person credentials, each with their own real Ed25519 keypair. The substrate's existing primitives compose to give the mechanism without new architecture.
 
 In THIS demonstration, the constitutional source is a string-labelled credential with a random Ed25519 keypair, because duplicating the natural-person setup in every example would add bloat without architectural value. The architectural mechanism is shown in the constitutional_anchoring example; this example demonstrates the targeting-specific commitments separately.
 
-For any real military application, what is decisive is the **institutional anchoring** of natural-person credentials to specific humans: biometric attestation, hardware security modules certified against natural persons, legal recognition of cryptographic credentials, processes for key generation, loss, recovery, death, and succession. All outside what the substrate's code can verify. The substrate provides the structural machinery; the institutional apparatus that anchors specific keypairs to specific humans is what makes "this strike was authorised by Maj. Amir" operationally — not just structurally — meaningful.
+For any real military application, what is decisive is the **institutional anchoring** of natural-person credentials to specific humans: biometric attestation, hardware security modules certified against natural persons, legal recognition of cryptographic credentials, processes for key generation, loss, recovery, death, and succession. All outside what the substrate's code can verify. The substrate provides the structural machinery; the institutional apparatus that anchors specific keypairs to specific humans is what makes "this strike was authorised by Maj. Amir" operationally, and not only structurally, meaningful.
 
 A welfare authority that misuses the substrate produces wrong debts; a military that misuses it produces wrong deaths. The standard for institutional anchoring is correspondingly higher in the military case. The architectural mechanism is the same; the apparatus that makes it real is what differs.
 
-**Adoption**. The substrate's properties take effect only when an operator chooses to deploy the constraints honestly. The substrate makes the absence visible — every audit can see whether policies were attached, whether they were checked, whether drift criteria were declared — but it cannot prevent an operator under operational pressure from deploying a unit without the constraints. What the substrate adds is *structural visibility of the choice*. Whether visibility produces accountability is downstream of the architecture.
+**Adoption**. The substrate's properties take effect only when an operator chooses to deploy the constraints honestly. The substrate makes the absence visible (every audit can see whether policies were attached, whether they were checked, whether drift criteria were declared), but it cannot prevent an operator under operational pressure from deploying a unit without the constraints. What the substrate adds is *structural visibility of the choice*. Whether visibility produces accountability is downstream of the architecture.
 
 ## Running it
 
@@ -170,16 +172,16 @@ python -m examples.lavender.run
 
 The demonstration walks through:
 
-1. **Setup** — two operators, cooperative substrate, three policies on `authorise_strike`, cross-operator legal clearance required.
+1. **Setup**: two operators, cooperative substrate, three policies on `authorise_strike`, cross-operator legal clearance required.
 2. **Five target cases** (target_001 through target_005), each showing the substrate property at work or the failure mode being addressed.
-3. **Drift demonstration** — five low-confidence assessments push `assess_target` out of calibration; subsequent assessments refuse.
-4. **Cross-operator legal audit** — Legal Review investigates three targets; forensic reports on Legal Review's own ledger; audit invocations on the IDF ledger.
-5. **Ledger integrity** — both ledgers hash-verify.
-6. **Closing summary** — substrate properties mapped to failure modes, followed by an explicit statement of the natural-person anchoring limit and the adoption limit.
+3. **Drift demonstration**: five low-confidence assessments push `assess_target` out of calibration; subsequent assessments refuse.
+4. **Cross-operator legal audit**: Legal Review investigates three targets; the audit acts commit to Legal Review's own ledger with the findings in their output, and the sub-invocations to the IDF ledger. No report state unit is produced.
+5. **Ledger integrity**: both ledgers hash-verify.
+6. **Closing summary**: substrate properties mapped to failure modes, followed by an explicit statement of the natural-person anchoring limit and the adoption limit.
 
 ## What this verifies and what it does not
 
-**Verifies**: the substrate's architectural commitments — behaviour-characterised contracts with calibration, drift detection, per-invocation policy evaluation, refuse-wins composition, refer-to-human as structural output, cross-operator legal clearance, cross-operator audit — operate against an algorithmic-targeting scenario in the same way they operate against welfare or postal-accounting scenarios. Compositional uniformity holds.
+**Verifies**: the substrate's architectural commitments (behaviour-characterised contracts with calibration, drift detection, per-invocation policy evaluation, refuse-wins composition, refer-to-human as structural output, cross-operator legal clearance, cross-operator audit) operate against an algorithmic-targeting scenario in the same way they operate against welfare or postal-accounting scenarios. Compositional uniformity holds.
 
 **Does not verify**:
 
