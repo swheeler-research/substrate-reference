@@ -1,6 +1,6 @@
 # Five Eyes / mass surveillance
 
-A stylised model of cross-jurisdictional signals-intelligence mass surveillance against the substrate's commitments. Informed by the 2013 Snowden disclosures (PRISM, XKeyscore, Tempora, the bilateral Five Eyes query-exchange arrangements) but not a reconstruction of any specific real system. We do not have authoritative information about any current intelligence agency's internal architecture; the public record describes outcomes and structural arrangements.
+A stylised model of cross-jurisdictional signals-intelligence mass surveillance against the substrate's commitments. Informed by the 2013 Snowden disclosures (PRISM, XKeyscore, Tempora, the bilateral Five Eyes query-exchange arrangements) but not a reconstruction of any specific real system. There is no authoritative public information about any current intelligence agency's internal architecture; the public record describes outcomes and structural arrangements.
 
 This is the substrate's most ambitious falsification test, by some distance. It is also the one most starkly bounded by what code cannot do: the substrate cannot prevent governments from doing what they choose to do; it cannot prevent constitutional sources from being captured; it cannot force oversight bodies to look. What it CAN demonstrate is the architectural mechanism that would make systemic surveillance structurally legible to its constitutional sources, turning the question from "are the authorising bodies being deceived about scope?" into "are the authorising bodies looking at the ledger?".
 

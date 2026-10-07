@@ -1,6 +1,6 @@
 # Algorithmic targeting (Lavender)
 
-A stylised model of algorithmic target selection in war against the substrate's architectural commitments. Informed by reporting on the Lavender system used by the Israeli military in Gaza in 2023-2024 (notably +972 Magazine and Local Call, April 2024), but not a reconstruction of any specific operational system: we do not have authoritative information about Lavender's internal architecture; the public reporting describes outcomes and operational practices.
+A stylised model of algorithmic target selection in war against the substrate's architectural commitments. Informed by reporting on the Lavender system used by the Israeli military in Gaza in 2023-2024 (principally +972 Magazine and Local Call, April 2024), but not a reconstruction of any specific operational system: there is no authoritative public information about Lavender's internal architecture; the public reporting describes outcomes and operational practices.
 
 This is the substrate's **most ambitious falsification test and the one that most directly stresses its largest unfilled architectural commitment**: natural-person anchoring of the constitutional source. The substrate demonstrates several structural properties that would address documented failure modes; it cannot itself close the natural-person gap, and that gap is decisive for any real military application. The README is explicit about this.
 

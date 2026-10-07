@@ -29,7 +29,7 @@ The substrate-relevant failure points:
 1. **Code/data distinction was security-incoherent**. Behaviour-affecting "data" was treated as exempt from "code" validation.
 2. **Updates pushed simultaneously to all customers**. No staged rollout, no canary cohort observing the update first, no drift detection before mass deployment.
 3. **Customers had no structural opt-out**. The vendor's update channel pushed; the customer received. The customer's policy was not a gate.
-4. **Rollback was difficult**. Customers had to manually boot millions of machines into safe mode and remove the offending file. Crucially, machines that auto-rebooted into BSOD before the next update was distributed could not receive the fix.
+4. **Rollback was difficult**. Customers had to manually boot millions of machines into safe mode and remove the offending file. Machines that auto-rebooted into BSOD before the next update was distributed could not receive the fix.
 
 ## How the substrate is deployed
 
