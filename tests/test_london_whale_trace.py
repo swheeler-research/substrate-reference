@@ -40,7 +40,7 @@ def _scene():
 def _authorise(scene, **kw):
     defaults = dict(
         var_unit_id=scene["var_v1_cid"], risk_factor=0.04, notional=500.0,
-        desk_limit=1000.0, actual_vol=20.0, escalation_credential_id="",
+        actual_vol=20.0, escalation_credential_id="",
         invoking_cid=scene["desk_trader_cid"], label="t",
     )
     defaults.update(kw)
@@ -236,3 +236,36 @@ def test_administrative_acts_carry_no_clock_readings():
     assert act.governance_tick == 0 and act.recorded_time == "", (
         "administrative acts now carry clock readings; update the register "
         "and Appendix A")
+
+
+# =============================================================================
+# The desk limit is credential content, not an input
+# =============================================================================
+
+def test_a_declared_desk_limit_in_the_inputs_does_not_raise_the_limit():
+    """Found in review: the limit was read from the inputs, so a trader could
+    declare 5,000 million for a 1,500 million position and be permitted with
+    no escalation. The limit now lives in the invoking credential's
+    constraints, which are part of its content identity."""
+    scene = _scene()
+    r = scene["jpm"].runtime.invoke(scene["authorise_position"].content_id(), {
+        "var_unit_id": scene["var_v1_cid"],
+        "clearance_unit_id": scene["trade_clearance"].content_id(),
+        "position_notional_million_usd": 1500.0,
+        "declared_desk_limit_million_usd": 5000.0,
+        "risk_factor": 0.04,
+        "actual_realised_volatility_million_usd": 60.0,
+        "escalation_credential_id": "",
+        "position_id": "probe",
+    }, scene["desk_trader_cid"])
+    assert isinstance(r, Refuse)
+    assert "desk limit of 1000.0" in r.rationale
+
+
+def test_a_credential_carrying_no_desk_limit_authorises_nothing():
+    scene = _scene()
+    bare = scene["jpm"].runtime.credentials.put(lw._cred(
+        "limitless_trader", parent_cids=(scene["jpm_root_cid"],)))
+    out = _authorise(scene, notional=1.0, invoking_cid=bare)
+    assert out is None
+    assert "carries no desk limit" in _last_act(scene).output_or_rationale

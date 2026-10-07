@@ -50,11 +50,12 @@ from examples.london_whale import _implementations as impls
 CLEARANCE_MINIMUM_CONFIDENCE = 0.6
 
 
-def _cred(name, parent_cids=(), authorities=("invoke:any",), policy_refs=()):
+def _cred(name, parent_cids=(), authorities=("invoke:any",), policy_refs=(),
+          constraints=None):
     return CredentialUnit(
         name=name, transfer=TransferDiscipline.DELEGATED, principal=name,
         authorities=authorities, credential_refs=tuple(parent_cids),
-        policy_refs=tuple(policy_refs),
+        policy_refs=tuple(policy_refs), constraints=dict(constraints or {}),
     )
 
 
@@ -216,7 +217,6 @@ def build_scene():
                 "var_unit_id": "str",
                 "clearance_unit_id": "str",
                 "position_notional_million_usd": "float",
-                "declared_desk_limit_million_usd": "float",
                 "risk_factor": "float",
                 "actual_realised_volatility_million_usd": "float",
                 "escalation_credential_id": "str",
@@ -307,9 +307,18 @@ def build_scene():
     code.put(investigate_bank)
 
     # Operating credentials
-    desk_trader = _cred("desk_trader", parent_cids=(jpm_root_cid,))
-    risk_officer = _cred("risk_officer", parent_cids=(jpm_root_cid,))
-    senior_risk_officer = _cred("senior_risk_officer", parent_cids=(jpm_root_cid,))
+    # The desk limit is a term of the authority the credential grants, so it is
+    # credential content and part of the credential's content identity. The
+    # position limit policy reads it from the invoking credential. An earlier
+    # version read it from the inputs, so a trader could declare a limit of
+    # 5,000 million for a 1,500 million position and be permitted without any
+    # escalation at all.
+    desk_trader = _cred("desk_trader", parent_cids=(jpm_root_cid,),
+                        constraints={"desk_limit_million_usd": 1000.0})
+    risk_officer = _cred("risk_officer", parent_cids=(jpm_root_cid,),
+                         constraints={"desk_limit_million_usd": 1000.0})
+    senior_risk_officer = _cred("senior_risk_officer", parent_cids=(jpm_root_cid,),
+                                constraints={"desk_limit_million_usd": 1000.0})
     occ_inspector = _cred(
         "occ_inspector", parent_cids=(occ_root_cid,),
         authorities=("invoke:any", "cross_operator:audit"),
@@ -410,7 +419,7 @@ def _header(title):
     print("=" * 76)
 
 
-def _authorise(scene, var_unit_id, risk_factor, notional, desk_limit,
+def _authorise(scene, var_unit_id, risk_factor, notional,
                actual_vol, escalation_credential_id, invoking_cid, label,
                position_id=""):
     jpm = scene["jpm"]
@@ -420,7 +429,6 @@ def _authorise(scene, var_unit_id, risk_factor, notional, desk_limit,
             "var_unit_id": var_unit_id,
             "clearance_unit_id": scene["trade_clearance"].content_id(),
             "position_notional_million_usd": notional,
-            "declared_desk_limit_million_usd": desk_limit,
             "risk_factor": risk_factor,
             "actual_realised_volatility_million_usd": actual_vol,
             "escalation_credential_id": escalation_credential_id,
@@ -483,7 +491,7 @@ def main() -> int:
     _authorise(
         scene,
         var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
-        notional=500.0, desk_limit=1000.0,
+        notional=500.0,
         actual_vol=20.0,
         escalation_credential_id="",
         invoking_cid=scene["desk_trader_cid"],
@@ -497,7 +505,7 @@ def main() -> int:
     _authorise(
         scene,
         var_unit_id=scene["var_v2_cid"], risk_factor=0.015,
-        notional=500.0, desk_limit=1000.0,
+        notional=500.0,
         actual_vol=20.0,
         escalation_credential_id="",
         invoking_cid=scene["desk_trader_cid"],
@@ -516,7 +524,7 @@ def main() -> int:
         _authorise(
             scene,
             var_unit_id=scene["var_v2_cid"], risk_factor=0.015,
-            notional=500.0, desk_limit=1000.0,
+            notional=500.0,
             actual_vol=av,
             escalation_credential_id="",
             invoking_cid=scene["desk_trader_cid"],
@@ -530,7 +538,7 @@ def main() -> int:
     _authorise(
         scene,
         var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
-        notional=1500.0, desk_limit=1000.0,
+        notional=1500.0,
         actual_vol=60.0,
         escalation_credential_id="",
         invoking_cid=scene["desk_trader_cid"],
@@ -542,7 +550,7 @@ def main() -> int:
     _authorise(
         scene,
         var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
-        notional=1500.0, desk_limit=1000.0,
+        notional=1500.0,
         actual_vol=60.0,
         escalation_credential_id=scene["desk_trader_cid"],
         invoking_cid=scene["desk_trader_cid"],
@@ -554,7 +562,7 @@ def main() -> int:
     _authorise(
         scene,
         var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
-        notional=1500.0, desk_limit=1000.0,
+        notional=1500.0,
         actual_vol=60.0,
         escalation_credential_id=scene["desk_self_escalation_cid"],
         invoking_cid=scene["desk_trader_cid"],
@@ -585,7 +593,7 @@ def main() -> int:
     _authorise(
         scene,
         var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
-        notional=1500.0, desk_limit=1000.0,
+        notional=1500.0,
         actual_vol=60.0,
         escalation_credential_id=scene["retired_escalation_cid"],
         invoking_cid=scene["senior_risk_officer_cid"],
@@ -600,7 +608,7 @@ def main() -> int:
     _authorise(
         scene,
         var_unit_id=scene["var_v1_cid"], risk_factor=0.04,
-        notional=1500.0, desk_limit=1000.0,
+        notional=1500.0,
         actual_vol=60.0,
         escalation_credential_id=scene["senior_risk_escalation_cid"],
         invoking_cid=scene["senior_risk_officer_cid"],
@@ -634,7 +642,7 @@ def main() -> int:
         _authorise(
             scene,
             var_unit_id=scene["var_v2_cid"], risk_factor=0.015,
-            notional=500.0, desk_limit=1000.0,
+            notional=500.0,
             actual_vol=7.5,
             escalation_credential_id="",
             invoking_cid=scene["desk_trader_cid"],
@@ -677,7 +685,7 @@ def main() -> int:
     _authorise(
         scene,
         var_unit_id=scene["var_v2_cid"], risk_factor=0.015,
-        notional=500.0, desk_limit=1000.0,
+        notional=500.0,
         actual_vol=7.5,
         escalation_credential_id="",
         invoking_cid=scene["desk_trader_cid"],
@@ -686,10 +694,12 @@ def main() -> int:
     )
 
     _header("Round 7: OCC cross-operator audit")
-    print(f"  The OCC audits after the backtest and deprecation, so its forensic")
-    print(f"  report reconstructs the full sequence: both VaR models, the drift")
-    print(f"  event, the drift reset, the over-limit refusal, the escalation, the")
-    print(f"  backtest refusal, and the deprecation.")
+    print(f"  The OCC audits after the backtest and deprecation. The audit returns")
+    print(f"  every authorise_position act, permitted and refused, with the model,")
+    print(f"  the confidence and any escalation each carried. It skips administrative")
+    print(f"  acts, so the drift reset, the backtest refusal and the deprecation are")
+    print(f"  on JPMorgan's ledger and not in this return; and it produces no report")
+    print(f"  state unit. The OCC's own act commits to the OCC's ledger.")
     print()
     r = occ.runtime.invoke(
         scene["investigate_bank"].content_id(),
@@ -766,9 +776,9 @@ def main() -> int:
     print(f"  Orthogonal to confidence: position-size policy and model-quality")
     print(f"  policy are separately enforced.")
     print()
-    print(f"  CROSS-OPERATOR REGULATOR AUDIT. The OCC's audit produces a forensic")
-    print(f"  report on its own ledger showing every position's propagated")
-    print(f"  confidence, predicted VaR, escalation credential, and refusal rationale.")
+    print(f"  CROSS-OPERATOR REGULATOR AUDIT. The OCC's audit act commits to its own")
+    print(f"  ledger with every position's propagated confidence, predicted VaR,")
+    print(f"  escalation credential and refusal rationale in its output.")
     print()
     print(f"  WHAT THE SUBSTRATE DOES NOT PREVENT: an institution choosing to set")
     print(f"  weak calibration bounds, weak gate thresholds, weak position limits,")

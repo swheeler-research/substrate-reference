@@ -139,13 +139,27 @@ def implementation(inputs, runtime, invoking_credential_id):
         raise Exception("reviewer credential " + reviewer_cid[:12] + " is " +
                         reviewer.status + "; meaningful human review requires a "
                         "live attributable reviewer")
-    if not reviewer.bears("review:individual_target_review"):
-        raise Exception("credential " + reviewer_cid[:12] + " does not bear "
-                        "individual-review authority; a credential issued for "
-                        "bulk approval cannot satisfy individual review")
+    # The authority is read from the credential's own content. An earlier
+    # version of this policy tested a principal that no credential in the
+    # scene carried, so the genuine reviewer was refused and the script, having
+    # no assertions, still exited 0.
+    authorities = tuple(getattr(reviewer.credential, "authorities", ()) or ())
+    if "review:individual_strikes" not in authorities:
+        raise Exception("credential " + reviewer_cid[:12] + " does not carry "
+                        "individual-strike review authority; a credential issued "
+                        "for bulk approval cannot satisfy individual review")
     if reviewer_cid == invoking_credential_id:
         raise Exception("the invoking credential cannot be its own reviewer; "
                         "review by a second party is what the requirement is")
+    # And the reviewer must not have been issued by the invoker: review by a
+    # credential the operations officer minted for itself is self-review.
+    invoker_sources = set(runtime.constitutional_sources_of(invoking_credential_id))
+    if invoking_credential_id in reviewer.authority_chain and invoking_credential_id not in invoker_sources:
+        raise Exception("the reviewer credential was issued under the invoking "
+                        "credential, so the review is self-review")
+    if not (invoker_sources & set(runtime.constitutional_sources_of(reviewer_cid))):
+        raise Exception("the reviewer credential shares no constitutional source "
+                        "with the invoker")
     return {}
 """
 

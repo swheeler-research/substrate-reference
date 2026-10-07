@@ -91,15 +91,26 @@ def implementation(inputs, runtime, invoking_credential_id):
     # trader supplied the string, so the trader could. An invoker must not be
     # able to assert about itself the thing being checked.
     notional = inputs.get("position_notional_million_usd", 0.0)
-    declared_limit = inputs.get("declared_desk_limit_million_usd", 0.0)
     escalation_id = inputs.get("escalation_credential_id", "")
-    if notional <= declared_limit:
+    # The desk limit is read from the invoking credential's own content, not
+    # from the inputs. A limit the invoker declares is no limit.
+    invoker = runtime.resolve_credential(invoking_credential_id)
+    limit = None
+    if invoker.valid:
+        limit = (getattr(invoker.credential, "constraints", {}) or {}).get("desk_limit_million_usd")
+    if limit is None:
+        raise Exception(
+            "position_limit_policy refuses: the invoking credential carries no "
+            "desk limit, so no position can be authorised under it"
+        )
+    if notional <= limit:
         return {}
     if not escalation_id:
         raise Exception(
             "position_limit_policy refuses: notional " + str(notional) +
-            "m USD exceeds declared desk limit " + str(declared_limit) +
-            "m USD with no escalation credential declared"
+            "m USD exceeds the desk limit of " + str(limit) +
+            "m USD carried by the invoking credential, with no escalation "
+            "credential declared"
         )
 
     context = runtime.invocation_context()
