@@ -190,6 +190,8 @@ The demonstration walks through:
 - That cooperative-substrate arrangements between sovereign-state intelligence agencies are politically achievable. These are negotiated as classified bilateral / multilateral arrangements with no public accountability.
 - That public reporting on Five Eyes accurately characterises the actual arrangements. The demonstration uses synthetic stylised scenarios; it is not a claim about what any specific real agency does.
 
+**One input the policies still take on trust.** The target's jurisdiction is a property of the data being queried, which this demonstration does not model as a state unit, so `jurisdiction_scope_policy` and `cooperative_cross_query_gate` read it from the inputs and an invoker could misstate it. The executing and requesting agency, by contrast, are derived from the invoking credential's authority chain and cannot be asserted. The companion paper's register discloses the gap; the remedy is a state unit carrying each subject's jurisdiction, resolved through the invocation context.
+
 The substrate's contribution here is structural: it makes the cross-jurisdictional surveillance arrangements that exist substrate-legible. Whether they are made substrate-legible is the political question the architecture cannot answer. What the architecture says is: if you want oversight, this is what oversight would look like, and the substrate's machinery would carry it. The choice to want oversight, and to exercise it, is downstream of every code path the substrate provides.
 
 This is the substrate's most architecturally ambitious test and its most politically bounded. Both qualifications matter; the substrate is verified against the architectural commitments and is honest about the political ones.

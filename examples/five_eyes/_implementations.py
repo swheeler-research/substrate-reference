@@ -58,6 +58,12 @@ def _agency(runtime, credential_id):
 
 
 def implementation(inputs, runtime, invoking_credential_id):
+    # The target's jurisdiction is a property of the data being queried, which
+    # is the state being operated on. This demonstration does not model that
+    # data as a state unit, so the policy reads the jurisdiction from the
+    # inputs, and an invoker could misstate it. The companion's register
+    # discloses the gap; the remedy is a state unit carrying the subject's
+    # jurisdiction, resolved through the invocation context's state component.
     target_jurisdiction = inputs.get("target_jurisdiction", "")
     cooperative_authorisation = inputs.get("cooperative_authorisation_credential", "")
     # Which agency is executing is a claim about the invoker, so it is derived
@@ -196,6 +202,9 @@ def _agency(runtime, credential_id):
 
 
 def implementation(inputs, runtime, invoking_credential_id):
+    # target_jurisdiction is read from the inputs for the reason given in
+    # JURISDICTION_SCOPE_POLICY: the data's jurisdiction is not modelled as a
+    # state unit in this demonstration.
     target_jurisdiction = inputs.get("target_jurisdiction", "")
     query_category = inputs.get("query_category", "")
     # As above: who is requesting is derived, not asserted.

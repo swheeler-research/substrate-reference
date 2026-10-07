@@ -208,6 +208,10 @@ def test_the_audit_returns_positions_only_and_creates_no_state_unit():
     forensic report state unit is committed anywhere."""
     scene = _scene()
     jpm = scene["jpm"]
+    # One permitted and one refused position, so the audit has rows of both
+    # verdicts to return; without them the test below would pass vacuously.
+    assert _authorise(scene, notional=500.0) is not None
+    assert _authorise(scene, notional=1500.0) is None
     jpm.reset_drift(scene["var_v2_cid"], scene["risk_officer_cid"])
     jpm.deprecate_unit(scene["var_v2_cid"], scene["risk_officer_cid"])
     code = scene["jpm"].runtime.code
@@ -220,6 +224,15 @@ def test_the_audit_returns_positions_only_and_creates_no_state_unit():
     assert isinstance(r, Permit)
     assert set(r.output) == {"verdict", "audit_act_id", "ledger_length",
                              "permitted_positions", "refused_positions"}
+    # No administrative act appears in either list: every row is an
+    # authorise_position act, so every row carries a notional.
+    rows = r.output["permitted_positions"] + r.output["refused_positions"]
+    assert len(r.output["permitted_positions"]) == 1
+    assert len(r.output["refused_positions"]) == 1
+    assert all("position_notional_million_usd" in row for row in rows)
+    admin_acts = [a for a in scene["jpm"].runtime.ledger if a.kind == "administrative"]
+    assert len(admin_acts) >= 2
+    assert not any(row.get("act_id") == a.content_id() for a in admin_acts for row in rows)
     assert len(code._store) == before
     # The only state unit whose name mentions a report is the P&L recorder's
     # implementation, which exists before the audit runs. No forensic report.
