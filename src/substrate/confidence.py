@@ -106,6 +106,11 @@ def validate_confidence_spec(section: Any) -> None:
             raise ConfidenceSpecError(
                 f"confidence.acceptance_band lo {lo} must be <= hi {hi}"
             )
+    assertion = section.get("assertion")
+    if assertion is not None and assertion not in ("allow", "forbid"):
+        raise ConfidenceSpecError(
+            f"confidence.assertion must be 'allow' or 'forbid'; got {assertion!r}"
+        )
     propagation = section.get("propagation")
     if propagation is not None:
         if isinstance(propagation, str):

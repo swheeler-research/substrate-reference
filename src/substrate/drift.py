@@ -12,12 +12,14 @@ other five (revocation, supersession, deprecation, constitutional source
 update, compilation integrity) are archive-state or compile-time
 properties. Drift is a runtime-state property: it depends on observed
 outputs over time, so it lives on the runtime (a `DriftMonitor`
-attached to each Runtime instance) rather than on the archives. When a
-substrate restarts, drift state is rebuilt from new observations. This
-is intentional — drift is about live behaviour, and history-window
-based; restarting the process is effectively a "give it fresh data" act
-that the operator can do explicitly if drift detection was wrong or if
-the underlying implementation has been replaced.
+attached to each Runtime instance) rather than on the archives. The
+detection itself is recorded on the ledger as an administrative act
+(action "drift_detected"), in the same shape as a revocation, and a
+Runtime constructed over an existing ledger rebuilds its drifted set
+from those acts and from the "reset_drift" acts that cleared them. What
+is not rebuilt is the observation window: after a restart a unit that
+had not yet drifted starts its window afresh. Clearing drift is an
+operator act, never a side effect of restarting.
 
 Supported criterion types (Phase 3 minimum):
 
@@ -81,6 +83,11 @@ class DriftMonitor:
     def drift_reason(self, unit_content_id: str):
         """Return the (criterion, evidence) tuple for a drifted unit, or None."""
         return self._drifted.get(unit_content_id)
+
+    def mark(self, unit_content_id: str, criterion: dict, evidence: dict) -> None:
+        """Mark a unit drifted without an observation. Used when a Runtime
+        rebuilds its drift state from the ledger's drift_detected acts."""
+        self._drifted[unit_content_id] = (criterion, evidence)
 
     def reset(self, unit_content_id: str) -> None:
         """Clear observations and drift state for a unit (operator action;

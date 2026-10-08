@@ -108,6 +108,11 @@ class Act:
             is measured in: a form affected at tick t is non-invocable by
             tick t + Delta. 0 for an act committed by a runtime with no
             clock, which is how acts constructed directly in tests read.
+        confidence_origin: where the act's calibration value came from:
+            "composed" (the declared propagation function over sub-unit
+            values), "asserted" (the implementation set it), or "" (the
+            unit produces no calibration value). An auditor can tell an
+            asserted value from a composed one from the act alone.
         recorded_time: the operator's wall-clock reading at this act, as an
             ISO-8601 instant in UTC. What an inquiry asks for, and what a
             latency measurement in seconds needs. Not monotone across
@@ -131,6 +136,7 @@ class Act:
     policy_refusals: tuple = ()
     governance_tick: int = 0
     recorded_time: str = ""
+    confidence_origin: str = ""
 
     def content_id(self) -> str:
         return content_hash({
@@ -146,6 +152,7 @@ class Act:
             "policy_refusals": _make_jsonable(self.policy_refusals),
             "governance_tick": self.governance_tick,
             "recorded_time": self.recorded_time,
+            "confidence_origin": self.confidence_origin,
         })
 
 

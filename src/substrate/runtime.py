@@ -217,6 +217,7 @@ class Runtime:
         # their spec. Drift is runtime state (per process), not archive
         # state, because it depends on observed outputs over time.
         self.drift_monitor = DriftMonitor()
+        self._rebuild_drift_from_ledger()
         # Invocation stack for confidence propagation and lineage. Each
         # frame is a dict {"sub_confidences": [...], "sub_acts": [...]}.
         # Pushed before an impl runs so the impl's runtime.invoke() calls
@@ -835,15 +836,28 @@ class Runtime:
             #     reliability aggregation; distributional uncertainty
             #     propagation is out of scope (see docs/architectural_boundary.md).
             confidence_spec = spec.get("confidence")
+            confidence_origin = ""
             if (
                 _observe_for_propagation
                 and isinstance(confidence_spec, dict)
                 and confidence_spec.get("produces")
-                and confidence_spec.get("propagation")
                 and isinstance(output, dict)
             ):
                 field = confidence_spec.get("output_field", "confidence")
-                if output.get(field) is None:
+                if output.get(field) is not None:
+                    # The implementation asserted the value. Recorded as
+                    # such on the act, so an auditor can tell it from a
+                    # composed one; refused outright where the unit's
+                    # contract forbids assertion.
+                    confidence_origin = "asserted"
+                    if confidence_spec.get("assertion") == "forbid":
+                        return self._refuse(
+                            compiled_form, inputs, invoking_credential_id,
+                            f"confidence assertion forbidden by the unit's contract: "
+                            f"implementation set {field!r}",
+                            sub_invocations=self._current_sub_invocations(_observe_for_propagation),
+                        )
+                elif confidence_spec.get("propagation"):
                     propagation = confidence_spec["propagation"]
                     # Canonical-string propagation only at runtime; custom is
                     # validated at compile-at-commit but not yet executed here.
@@ -852,6 +866,7 @@ class Runtime:
                         propagated = propagate(sub_confs, propagation)
                         if propagated is not None:
                             output[field] = propagated
+                            confidence_origin = "composed"
 
             # 5e. Update the drift monitor with this output. If the unit
             #     declares drift_criteria, the monitor checks whether the
@@ -862,13 +877,25 @@ class Runtime:
             #     invocations will refuse.
             drift_criteria = spec.get("drift_criteria", [])
             if drift_criteria:
-                self.drift_monitor.observe(compiled_form.source_unit, output, drift_criteria)
+                violated = self.drift_monitor.observe(
+                    compiled_form.source_unit, output, drift_criteria,
+                )
+                if violated is not None:
+                    # The behavioural trigger is an act on the ledger in the
+                    # same shape as a revocation: an administrative act
+                    # naming the unit, the criterion and the evidence. A
+                    # Runtime rebuilt over this ledger marks the unit drifted
+                    # from this act, so a restart does not clear drift.
+                    self._record_drift_detected(
+                        compiled_form.source_unit, invoking_credential_id, violated,
+                    )
 
             # 6. Commit a permit, recording the acts this impl caused.
             #    Read before the frame is popped in the finally clause.
             result = self._permit(
                 compiled_form, inputs, invoking_credential_id, output,
                 sub_invocations=self._current_sub_invocations(_observe_for_propagation),
+                confidence_origin=confidence_origin,
             )
         finally:
             if _observe_for_propagation:
@@ -904,8 +931,45 @@ class Runtime:
             return ()
         return tuple(self._invocation_stack[-1]["sub_acts"])
 
-    def _permit(self, compiled_form, inputs, credential_id, output, sub_invocations=()):
+    def _record_drift_detected(self, unit_cid: str, credential_id: str, violated) -> Act:
+        """Commit the drift detection as an administrative act."""
+        criterion, evidence = violated
         act = Act(
+            kind="administrative",
+            previous_act_id=self.ledger.latest(),
+            compiled_form_id="",
+            invoking_credential_id=credential_id,
+            inputs={"action": "drift_detected", "target_unit": unit_cid},
+            verdict="executed",
+            output_or_rationale={"criterion": criterion, "evidence": evidence},
+            governance_tick=self.clock.tick(),
+            recorded_time=self.clock.wall(),
+        )
+        self.ledger.append(act)
+        return act
+
+    def _rebuild_drift_from_ledger(self) -> None:
+        """Replay drift_detected and reset_drift acts so that a Runtime
+        constructed over an existing ledger carries the drift state the
+        ledger records. Observation windows are not rebuilt."""
+        for act in self.ledger:
+            if act.kind != "administrative" or not isinstance(act.inputs, dict):
+                continue
+            action = act.inputs.get("action")
+            if action == "drift_detected":
+                details = act.output_or_rationale if isinstance(act.output_or_rationale, dict) else {}
+                self.drift_monitor.mark(
+                    act.inputs.get("target_unit", ""),
+                    details.get("criterion", {}),
+                    details.get("evidence", {}),
+                )
+            elif action == "reset_drift":
+                self.drift_monitor.reset(act.inputs.get("target_unit", ""))
+
+    def _permit(self, compiled_form, inputs, credential_id, output, sub_invocations=(),
+                confidence_origin=""):
+        act = Act(
+            confidence_origin=confidence_origin,
             governance_tick=self.clock.tick(),
             recorded_time=self.clock.wall(),
             previous_act_id=self.ledger.latest(),
