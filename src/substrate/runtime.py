@@ -415,6 +415,8 @@ class Runtime:
         # sub-invocation twice.
         if target.runtime is not self and self._invocation_stack:
             self._invocation_stack[-1]["sub_acts"].append(result.act_id)
+            if isinstance(result, Refuse):
+                self._invocation_stack[-1]["sub_refusals"].append(result.act_id)
         # Cross-operator confidence observation. The caller's frame (if any)
         # collects the sub-confidence so its propagation function applies.
         if isinstance(result, Permit) and self._invocation_stack:
@@ -474,6 +476,8 @@ class Runtime:
         )
         if caller_frame is not None:
             caller_frame["sub_acts"].append(result.act_id)
+            if isinstance(result, Refuse):
+                caller_frame["sub_refusals"].append(result.act_id)
         return result
 
     def _invoke(
@@ -782,7 +786,7 @@ class Runtime:
         #     don't propagate as confidence, and their acts are not the
         #     parent implementation's sub-invocations).
         if _observe_for_propagation:
-            self._invocation_stack.append({"sub_confidences": [], "sub_acts": []})
+            self._invocation_stack.append({"sub_confidences": [], "sub_acts": [], "sub_refusals": []})
         try:
             try:
                 output = impl_callable(inputs, self, invoking_credential_id)
@@ -795,6 +799,30 @@ class Runtime:
                     inputs,
                     invoking_credential_id,
                     f"implementation raised: {type(exc).__name__}: {exc}",
+                    sub_invocations=self._current_sub_invocations(_observe_for_propagation),
+                )
+
+            # 5c2. The sub-refusal clause. A unit whose spec declares
+            #      sub_refusal: "refuse" has bound itself to refuse whenever
+            #      any sub-invocation its implementation made refused, so the
+            #      composite cannot route round a sub-unit's refusal. Without
+            #      the clause the implementation may handle the refusal; the
+            #      refused sub-act is on the ledger in this act's lineage
+            #      either way (PP 3.6.1). Cross-operator sub-invocations
+            #      count: their refusals are deposited in this frame too.
+            if (
+                _observe_for_propagation
+                and isinstance(spec, dict)
+                and spec.get("sub_refusal") == "refuse"
+                and self._invocation_stack[-1]["sub_refusals"]
+            ):
+                refused_ids = self._invocation_stack[-1]["sub_refusals"]
+                return self._refuse(
+                    compiled_form,
+                    inputs,
+                    invoking_credential_id,
+                    "sub_refusal clause: %d sub-invocation(s) refused: %s"
+                    % (len(refused_ids), ", ".join(r[:12] for r in refused_ids)),
                     sub_invocations=self._current_sub_invocations(_observe_for_propagation),
                 )
 

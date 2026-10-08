@@ -236,6 +236,16 @@ def compile_unit(
                 f"unit {unit.name} ({source_cid[:12]}) drift criteria invalid: {exc}"
             ) from exc
 
+        # 3e. The sub-refusal clause, if declared, must be one of the two
+        #     values the runtime knows; a misspelt clause would admit a unit
+        #     presenting as bound by its sub-units' refusals and never bound.
+        clause = unit.spec.get("sub_refusal")
+        if clause is not None and clause not in ("refuse", "handle"):
+            raise CompilationRefused(
+                f"unit {unit.name} ({source_cid[:12]}) sub_refusal clause invalid: "
+                f"{clause!r}; expected 'refuse' or 'handle'"
+            )
+
     # 4. Execution-optimisation artefacts (Phase 1: all stubbed None).
     fused_form = None
     cached_environment = None
