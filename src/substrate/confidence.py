@@ -155,6 +155,19 @@ def validate_confidence_gate(section: Any) -> None:
         raise ConfidenceSpecError(
             "confidence_gate.minimum_confidence is required and must be numeric"
         )
+    source = section.get("source", "inputs")
+    if source not in ("inputs", "act"):
+        raise ConfidenceSpecError(
+            f"confidence_gate.source must be 'inputs' or 'act'; got {source!r}"
+        )
+    act_field = section.get("act_field", "confidence_act")
+    if not isinstance(act_field, str) or not act_field:
+        raise ConfidenceSpecError("confidence_gate.act_field must be a non-empty string")
+    require_origin = section.get("require_origin")
+    if require_origin is not None and require_origin not in ("composed", "asserted"):
+        raise ConfidenceSpecError(
+            f"confidence_gate.require_origin must be 'composed' or 'asserted'; got {require_origin!r}"
+        )
     field = section.get("applies_to_field", "confidence")
     if not isinstance(field, str) or not field:
         raise ConfidenceSpecError(

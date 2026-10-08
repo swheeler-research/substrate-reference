@@ -71,7 +71,12 @@ def test_drift_detection_is_an_administrative_act_on_the_ledger():
     admin = [a for a in led if a.kind == "administrative"]
     assert len(admin) == 1
     act = admin[0]
-    assert act.inputs == {"action": "drift_detected", "target_unit": unit_cid}
+    assert act.inputs["action"] == "drift_detected" and act.inputs["target_unit"] == unit_cid
+    # Authored by the mechanism: no authorising credential, and the act whose
+    # output tripped the criterion is named and precedes it on the chain.
+    assert act.invoking_credential_id == ""
+    acts = list(led)
+    assert acts[-2].content_id() == act.inputs["triggering_act"]
     assert act.verdict == "executed"
     assert act.output_or_rationale["criterion"]["type"] == "mean_in"
     assert act.governance_tick > 0
@@ -80,6 +85,24 @@ def test_drift_detection_is_an_administrative_act_on_the_ledger():
     r = runtime.invoke(unit_cid, {"score": 0.5}, op_cid)
     assert isinstance(r, Refuse) and "drifted" in r.rationale
     assert led.verify()
+
+
+def test_a_refused_reset_does_not_clear_drift_on_rebuild():
+    """An unauthorised reset attempt is recorded with verdict refused; a
+    runtime rebuilt over the ledger must not replay it."""
+    from substrate.ledger import Act
+    code, creds, led, compiled, runtime, unit_cid, op_cid = _wire()
+    _drive_to_drift(runtime, unit_cid, op_cid)
+    led.append(Act(
+        kind="administrative", previous_act_id=led.latest(), compiled_form_id="",
+        invoking_credential_id="nobody",
+        inputs={"action": "reset_drift", "target_unit": unit_cid},
+        verdict="refused", output_or_rationale={"reason": "not delegated"},
+    ))
+    restarted = Runtime(code, creds, led, clock=FixedClock())
+    restarted.register_compiled(compiled)
+    assert restarted.drift_monitor.is_drifted(unit_cid)
+    assert isinstance(restarted.invoke(unit_cid, {"score": 0.5}, op_cid), Refuse)
 
 
 def test_a_runtime_rebuilt_over_the_ledger_is_still_drifted():

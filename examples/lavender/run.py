@@ -187,6 +187,11 @@ def build_scene():
             "confidence_gate": {
                 "minimum_confidence": 0.90,
                 "applies_to_field": "confidence",
+                # The gate reads the value from the assessment act on the
+                # ledger, named by the invoker, not from a number the
+                # invoker types; a caller cannot inflate it.
+                "source": "act",
+                "act_field": "assessment_act",
             },
         },
         implementation_ref=confidence_impl_cid,
@@ -426,6 +431,7 @@ def _try_strike(scene, target_id, reviewer_cid):
         {
             "target_id": target_id,
             "confidence": a["confidence"],
+            "assessment_act": assessment.act_id,
             "civilian_estimate": a["civilian_estimate"],
             "military_value_score": a["military_value_score"],
             "target_category": a["target_category"],

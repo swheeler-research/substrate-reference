@@ -422,7 +422,14 @@ class Runtime:
         # collects the sub-confidence so its propagation function applies.
         if isinstance(result, Permit) and self._invocation_stack:
             if isinstance(result.output, dict):
-                conf = result.output.get("confidence")
+                field = "confidence"
+                try:
+                    callee_spec = target.runtime.code.get_for_audit(source_unit_id).spec
+                    if isinstance(callee_spec, dict) and isinstance(callee_spec.get("confidence"), dict):
+                        field = callee_spec["confidence"].get("output_field", "confidence")
+                except Exception:
+                    pass
+                conf = result.output.get(field)
                 if isinstance(conf, (int, float)) and not isinstance(conf, bool):
                     self._invocation_stack[-1]["sub_confidences"].append(conf)
         return result
@@ -439,7 +446,14 @@ class Runtime:
             raise KeyError(source_unit_id)
         return self.code.get_for_audit(compiled_id)
 
-    def invoke(
+    def invoke(self, source_unit_id: str, inputs: dict, invoking_credential_id: str):
+        """Invoke a unit by its source content_id. The one entry point an
+        implementation has; it takes no flags, so an implementation cannot
+        detach a sub-invocation from its own lineage, confidence frame or
+        sub-refusal clause. Policy evaluation uses _invoke_as directly."""
+        return self._invoke_as(source_unit_id, inputs, invoking_credential_id, True)
+
+    def _invoke_as(
         self,
         source_unit_id: str,
         inputs: dict,
@@ -704,9 +718,8 @@ class Runtime:
                     compiled_form, inputs, invoking_credential_id,
                     f"policy graph contains source unit {policy_cid} as its own policy",
                 )
-            policy_result = self.invoke(
-                policy_cid, inputs, invoking_credential_id,
-                _observe_for_propagation=False,
+            policy_result = self._invoke_as(
+                policy_cid, inputs, invoking_credential_id, False,
             )
             if isinstance(policy_result, Refuse):
                 policy_refusals.append(PolicyRefusal(
@@ -775,7 +788,7 @@ class Runtime:
         #     audit.
         gate = spec.get("confidence_gate")
         if gate is not None:
-            gate_rationale = evaluate_confidence_gate(gate, inputs)
+            gate_rationale = self._evaluate_gate(gate, inputs)
             if gate_rationale is not None:
                 return self._refuse(
                     compiled_form, inputs, invoking_credential_id, gate_rationale,
@@ -788,6 +801,7 @@ class Runtime:
         #     parent implementation's sub-invocations).
         if _observe_for_propagation:
             self._invocation_stack.append({"sub_confidences": [], "sub_acts": [], "sub_refusals": []})
+        drift_violated = None
         try:
             try:
                 output = impl_callable(inputs, self, invoking_credential_id)
@@ -877,18 +891,9 @@ class Runtime:
             #     invocations will refuse.
             drift_criteria = spec.get("drift_criteria", [])
             if drift_criteria:
-                violated = self.drift_monitor.observe(
+                drift_violated = self.drift_monitor.observe(
                     compiled_form.source_unit, output, drift_criteria,
                 )
-                if violated is not None:
-                    # The behavioural trigger is an act on the ledger in the
-                    # same shape as a revocation: an administrative act
-                    # naming the unit, the criterion and the evidence. A
-                    # Runtime rebuilt over this ledger marks the unit drifted
-                    # from this act, so a restart does not clear drift.
-                    self._record_drift_detected(
-                        compiled_form.source_unit, invoking_credential_id, violated,
-                    )
 
             # 6. Commit a permit, recording the acts this impl caused.
             #    Read before the frame is popped in the finally clause.
@@ -897,6 +902,16 @@ class Runtime:
                 sub_invocations=self._current_sub_invocations(_observe_for_propagation),
                 confidence_origin=confidence_origin,
             )
+            if drift_violated is not None:
+                # The behavioural trigger is an act on the ledger in the
+                # same shape as a revocation: an administrative act naming
+                # the unit, the criterion, the evidence and the act whose
+                # output tripped it. It is authored by the mechanism, not by
+                # the credential that invoked the unit, so it carries no
+                # authorising credential; the invocation act it names
+                # carries that. A Runtime rebuilt over this ledger marks the
+                # unit drifted from this act, so a restart does not clear drift.
+                self._record_drift_detected(compiled_form.source_unit, result.act_id, drift_violated)
         finally:
             if _observe_for_propagation:
                 self._invocation_stack.pop()
@@ -931,15 +946,53 @@ class Runtime:
             return ()
         return tuple(self._invocation_stack[-1]["sub_acts"])
 
-    def _record_drift_detected(self, unit_cid: str, credential_id: str, violated) -> Act:
-        """Commit the drift detection as an administrative act."""
+    def act_by_id(self, act_id: str):
+        """The act with this identity on this runtime's ledger, or None."""
+        for act in self.ledger:
+            if act.content_id() == act_id:
+                return act
+        return None
+
+    def _evaluate_gate(self, gate: dict, inputs):
+        """A confidence gate with source "act" reads the value from the act
+        that produced it, resolved on this ledger by the identity the inputs
+        carry, and its recorded origin; the invoker cannot supply the value.
+        Any other gate reads the inputs, which is the invoker's claim."""
+        if gate.get("source", "inputs") != "act":
+            return evaluate_confidence_gate(gate, inputs)
+        field = gate.get("applies_to_field", "confidence")
+        act_field = gate.get("act_field", "confidence_act")
+        act_id = inputs.get(act_field) if isinstance(inputs, dict) else None
+        if not isinstance(act_id, str) or not act_id:
+            return f"confidence_gate refuses: input {act_field!r} must name the producing act"
+        act = self.act_by_id(act_id)
+        if act is None:
+            return f"confidence_gate refuses: producing act {act_id[:12]} is not on this ledger"
+        if act.verdict != "permit" or not isinstance(act.output_or_rationale, dict):
+            return f"confidence_gate refuses: producing act {act_id[:12]} did not permit"
+        required = gate.get("require_origin")
+        if required is not None and act.confidence_origin != required:
+            return (
+                f"confidence_gate refuses: producing act {act_id[:12]} recorded origin "
+                f"{act.confidence_origin!r}; {required!r} required"
+            )
+        return evaluate_confidence_gate(
+            {"minimum_confidence": gate["minimum_confidence"], "applies_to_field": field},
+            act.output_or_rationale,
+        )
+
+    def _record_drift_detected(self, unit_cid: str, triggering_act_id: str, violated) -> Act:
+        """Commit the drift detection as an administrative act authored by
+        the mechanism: no authorising credential, and the invocation act
+        whose output tripped the criterion named as the trigger."""
         criterion, evidence = violated
         act = Act(
             kind="administrative",
             previous_act_id=self.ledger.latest(),
             compiled_form_id="",
-            invoking_credential_id=credential_id,
-            inputs={"action": "drift_detected", "target_unit": unit_cid},
+            invoking_credential_id="",
+            inputs={"action": "drift_detected", "target_unit": unit_cid,
+                    "triggering_act": triggering_act_id},
             verdict="executed",
             output_or_rationale={"criterion": criterion, "evidence": evidence},
             governance_tick=self.clock.tick(),
@@ -956,6 +1009,11 @@ class Runtime:
             if act.kind != "administrative" or not isinstance(act.inputs, dict):
                 continue
             action = act.inputs.get("action")
+            if act.verdict != "executed":
+                # A refused reset, recorded by the operator's authorisation
+                # check, changes nothing; replaying it would let an
+                # unauthorised attempt clear drift on restart.
+                continue
             if action == "drift_detected":
                 details = act.output_or_rationale if isinstance(act.output_or_rationale, dict) else {}
                 self.drift_monitor.mark(
