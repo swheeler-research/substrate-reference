@@ -178,6 +178,32 @@ def build_scene():
     # invoking the policy's impl. The 0.90 threshold is part of this unit's
     # content_id; substituting a more lenient threshold produces a new
     # unit with a new content_id, visible in any audit.
+    assess_target = FunctionalUnit(
+        name="assess_target",
+        contract_pattern=ContractPattern.BEHAVIOUR_CHARACTERISED,
+        spec={
+            "inputs": {"target_id": "str"},
+            "outputs": {"score": "float", "confidence": "float"},
+            # Confidence-as-architectural-property: declared in the spec
+            # rather than being an undocumented impl convention.
+            "confidence": {
+                "produces": True,
+                "output_field": "confidence",
+                "calibration": (
+                    "self-reported by classifier; ECE <= 0.05 on the validation set"
+                ),
+                "acceptance_band": [0.0, 1.0],
+            },
+            "drift_criteria": [
+                {"type": "mean_in", "field": "confidence",
+                 "bound": [0.85, 1.0], "window": 5},
+            ],
+        },
+        implementation_ref=assess_impl_cid,
+        credential_refs=(constitutional_cid, idf_root_cid),
+    )
+    code.put(assess_target)
+
     confidence_policy = FunctionalUnit(
         name="confidence_floor_policy",
         contract_pattern=ContractPattern.SPECIFICATION_BOUNDED,
@@ -192,6 +218,9 @@ def build_scene():
                 # invoker types; a caller cannot inflate it.
                 "source": "act",
                 "act_field": "assessment_act",
+                # The act must be assess_target's, and may be consumed once.
+                "producing_unit": assess_target.content_id(),
+                "single_use": True,
             },
         },
         implementation_ref=confidence_impl_cid,
@@ -234,31 +263,6 @@ def build_scene():
     # Behaviour-characterised classifier. Drift criterion: mean confidence
     # over the last 5 invocations must stay >= 0.85; if it drops, the unit
     # has left calibration and is invalidated.
-    assess_target = FunctionalUnit(
-        name="assess_target",
-        contract_pattern=ContractPattern.BEHAVIOUR_CHARACTERISED,
-        spec={
-            "inputs": {"target_id": "str"},
-            "outputs": {"score": "float", "confidence": "float"},
-            # Confidence-as-architectural-property: declared in the spec
-            # rather than being an undocumented impl convention.
-            "confidence": {
-                "produces": True,
-                "output_field": "confidence",
-                "calibration": (
-                    "self-reported by classifier; ECE <= 0.05 on the validation set"
-                ),
-                "acceptance_band": [0.0, 1.0],
-            },
-            "drift_criteria": [
-                {"type": "mean_in", "field": "confidence",
-                 "bound": [0.85, 1.0], "window": 5},
-            ],
-        },
-        implementation_ref=assess_impl_cid,
-        credential_refs=(constitutional_cid, idf_root_cid),
-    )
-    code.put(assess_target)
 
     # Legal clearance unit (Legal Review side). Authority chain includes
     # both operator roots via the cooperative substrate.

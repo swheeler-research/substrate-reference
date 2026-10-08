@@ -487,7 +487,7 @@ def test_cross_operator_sub_invocation_is_recorded_on_the_callers_act():
         "    return {'checked': True}\n",
         credential_refs=(parl_cid,),
     )
-    b.runtime.register_compiled(compile_unit(remote, code, creds))
+    b.runtime.register_compiled(compile_unit(remote, code, creds, custodian=b.custodian))
 
     local = _unit(
         code, "local_caller",
@@ -498,7 +498,7 @@ def test_cross_operator_sub_invocation_is_recorded_on_the_callers_act():
         functional_refs=(remote.content_id(),),
         state_refs=(remote.implementation_ref,),
     )
-    a.runtime.register_compiled(compile_unit(local, code, creds))
+    a.runtime.register_compiled(compile_unit(local, code, creds, custodian=a.custodian))
 
     result = a.runtime.invoke(local.content_id(), {}, cw_cid)
     assert isinstance(result, Permit)
@@ -518,7 +518,7 @@ def test_a_self_targeted_cross_operator_call_records_one_reference():
     coop, a, b, code, creds, parl_cid, cw_cid = _two_operator_federation()
 
     local_leaf = _unit(code, "local_leaf", _LEAF, credential_refs=(parl_cid,))
-    a.runtime.register_compiled(compile_unit(local_leaf, code, creds))
+    a.runtime.register_compiled(compile_unit(local_leaf, code, creds, custodian=a.custodian))
 
     caller = _unit(
         code, "self_targeting_caller",
@@ -529,7 +529,7 @@ def test_a_self_targeted_cross_operator_call_records_one_reference():
         functional_refs=(local_leaf.content_id(),),
         state_refs=(local_leaf.implementation_ref,),
     )
-    a.runtime.register_compiled(compile_unit(caller, code, creds))
+    a.runtime.register_compiled(compile_unit(caller, code, creds, custodian=a.custodian))
 
     result = a.runtime.invoke(caller.content_id(), {}, cw_cid)
     assert isinstance(result, Permit)

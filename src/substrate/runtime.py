@@ -77,9 +77,86 @@ from substrate.confidence import (
 )
 from substrate.clock import GovernanceClock
 from substrate.drift import DriftMonitor
-from substrate.federation import verify_compiled_form
+from substrate.federation import verify_compiled_form, verify_compiled_form_trusted
 from substrate.ledger import Act, FederatedLedger, PolicyRefusal
 from substrate.primitives import StateUnit
+
+
+class _AuditLedger:
+    """Read-only view of a ledger for implementations: iteration, length,
+    and the head. No append."""
+    def __init__(self, ledger):
+        self._ledger = ledger
+    def __iter__(self):
+        return iter(self._ledger)
+    def __len__(self):
+        return len(self._ledger)
+    def latest(self):
+        return self._ledger.latest()
+    def verify(self):
+        return self._ledger.verify()
+
+
+class _AuditCode:
+    """Read-only view of a code archive for implementations."""
+    def __init__(self, code):
+        self._code = code
+    def get_for_audit(self, content_id):
+        return self._code.get_for_audit(content_id)
+
+
+class _AuditDrift:
+    """Read-only view of the drift monitor for implementations."""
+    def __init__(self, monitor):
+        self._m = monitor
+    def is_drifted(self, unit_content_id):
+        return self._m.is_drifted(unit_content_id)
+    def drift_reason(self, unit_content_id):
+        return self._m.drift_reason(unit_content_id)
+
+
+class ImplementationRuntime:
+    """What an implementation is handed in place of the Runtime: the
+    governed entry points and read-only views, nothing that can commit,
+    register, reset or detach. The live Runtime was previously handed
+    over, which let an implementation call its internals; the companion
+    records that this facade is the Python path's whole surface."""
+    __slots__ = ("_rt", "ledger", "code", "drift_monitor")
+
+    def __init__(self, runtime):
+        self._rt = runtime
+        self.ledger = _AuditLedger(runtime.ledger)
+        self.code = _AuditCode(runtime.code)
+        self.drift_monitor = _AuditDrift(runtime.drift_monitor)
+
+    def invoke(self, source_unit_id, inputs, invoking_credential_id):
+        return self._rt.invoke(source_unit_id, inputs, invoking_credential_id)
+
+    def invoke_in(self, target_operator_id, source_unit_id, inputs, invoking_credential_id):
+        return self._rt.invoke_in(target_operator_id, source_unit_id, inputs, invoking_credential_id)
+
+    def invocation_context(self):
+        return self._rt.invocation_context()
+
+    def resolve_credential(self, credential_id):
+        return self._rt.resolve_credential(credential_id)
+
+    def credential_authority_chain(self, credential_id):
+        return self._rt.credential_authority_chain(credential_id)
+
+    def compiled_authority_chain(self, unit_id):
+        return self._rt.compiled_authority_chain(unit_id)
+
+    def constitutional_sources_of(self, credential_id):
+        return self._rt.constitutional_sources_of(credential_id)
+
+    def act_by_id(self, act_id):
+        return self._rt.act_by_id(act_id)
+
+
+class UntrustedWitness(ValueError):
+    """A compiled form offered for registration carries a witness that is
+    not from this runtime's declared custodians."""
 
 
 @dataclass(frozen=True)
@@ -218,6 +295,15 @@ class Runtime:
         # state, because it depends on observed outputs over time.
         self.drift_monitor = DriftMonitor()
         self._rebuild_drift_from_ledger()
+        # The trust root for compiled-form integrity: the custodian public
+        # keys this runtime recognises, and the quorum threshold it requires.
+        # Empty means no trust root has been declared; register_compiled and
+        # the integrity check then accept any well-formed witness, which is
+        # the single-trust-domain mode the companion discloses, and tests
+        # that construct a bare Runtime run in it. Operators and cooperative
+        # substrates declare their custodians through trust_custodian().
+        self.trusted_custodian_keys: set = set()
+        self.quorum_threshold = None
         # Invocation stack for confidence propagation and lineage. Each
         # frame is a dict {"sub_confidences": [...], "sub_acts": [...]}.
         # Pushed before an impl runs so the impl's runtime.invoke() calls
@@ -235,12 +321,47 @@ class Runtime:
         # through `invocation_context()`.
         self._context_stack: list = []
 
+    def trust_custodian(self, custodian) -> None:
+        """Declare a custodian whose witness this runtime accepts. A
+        LocalCustodian contributes its key; a QuorumCustodian contributes
+        its members' keys and its threshold."""
+        key = getattr(custodian, "public_key_hex", None)
+        if isinstance(key, str) and key:
+            self.trusted_custodian_keys.add(key)
+        members = getattr(custodian, "members", None)
+        if members:
+            for member in members:
+                mkey = getattr(member, "public_key_hex", None)
+                if isinstance(mkey, str) and mkey:
+                    self.trusted_custodian_keys.add(mkey)
+            threshold = getattr(custodian, "threshold", None)
+            if isinstance(threshold, int):
+                self.quorum_threshold = threshold
+
+    def witness_is_trusted(self, compiled_form: CompiledForm) -> bool:
+        """The integrity check: a valid witness from the declared trust
+        root, or, with no trust root declared, any valid witness."""
+        if not self.trusted_custodian_keys:
+            return verify_compiled_form(compiled_form)
+        # The payload's own threshold governs how many trusted contributions
+        # a quorum witness needs: a form witnessed by the quorum as it stood
+        # at compilation stays valid as members join later.
+        return verify_compiled_form_trusted(
+            compiled_form, self.trusted_custodian_keys, None,
+        )
+
     def register_compiled(self, compiled_form: CompiledForm) -> str:
         """Put a compiled form in the code archive and index it for invoke().
 
         Returns the compiled form's content_id. After this call, invoke()
         with the source unit's content_id will find this compiled form.
+        Refuses a form whose witness is not from this runtime's trust root.
         """
+        if not self.witness_is_trusted(compiled_form):
+            raise UntrustedWitness(
+                f"compiled form {compiled_form.content_id()[:12]} for unit "
+                f"{compiled_form.source_unit[:12]}: witness is not from a trusted custodian"
+            )
         cid = self.code.put(compiled_form)
         self._compiled_by_source[compiled_form.source_unit] = cid
         return cid
@@ -538,12 +659,12 @@ class Runtime:
         #     architecture's own terms and must not execute. Treating a
         #     missing payload as a pass would make the whole check
         #     bypassable by omission.
-        if not verify_compiled_form(compiled_form):
+        if not self.witness_is_trusted(compiled_form):
             return self._refuse(
                 compiled_form,
                 inputs,
                 invoking_credential_id,
-                "compilation integrity check failed; witness does not verify",
+                "compilation integrity check failed; witness does not verify against the trust root",
             )
 
         # 2. Check the invoking credential. All four invalidation reasons
@@ -788,6 +909,7 @@ class Runtime:
         #     audit.
         gate = spec.get("confidence_gate")
         if gate is not None:
+            self._gate_source_unit = compiled_form.source_unit
             gate_rationale = self._evaluate_gate(gate, inputs)
             if gate_rationale is not None:
                 return self._refuse(
@@ -804,7 +926,7 @@ class Runtime:
         drift_violated = None
         try:
             try:
-                output = impl_callable(inputs, self, invoking_credential_id)
+                output = impl_callable(inputs, ImplementationRuntime(self), invoking_credential_id)
             except Exception as exc:
                 # The impl may have invoked sub-units before raising. Those
                 # acts are on the ledger and belong to this act's lineage,
@@ -970,6 +1092,35 @@ class Runtime:
             return f"confidence_gate refuses: producing act {act_id[:12]} is not on this ledger"
         if act.verdict != "permit" or not isinstance(act.output_or_rationale, dict):
             return f"confidence_gate refuses: producing act {act_id[:12]} did not permit"
+        producing_unit = gate.get("producing_unit")
+        if producing_unit is not None:
+            try:
+                producer = self.code.get_for_audit(act.compiled_form_id)
+                source = getattr(producer, "source_unit", None)
+            except Exception:
+                source = None
+            if source != producing_unit:
+                return (
+                    f"confidence_gate refuses: producing act {act_id[:12]} was not produced by "
+                    f"unit {producing_unit[:12]}"
+                )
+        if gate.get("single_use"):
+            # A producing act may be consumed once by this gate's unit. The
+            # consumption record is the permitted act of this compiled form
+            # that named the producing act; scanning the ledger for it is
+            # the prototype's substitute for content-identified inputs.
+            this_source = self._gate_source_unit
+            for prior in self.ledger:
+                if prior.kind != "invocation" or prior.verdict != "permit":
+                    continue
+                if not isinstance(prior.inputs, dict) or prior.inputs.get(act_field) != act_id:
+                    continue
+                try:
+                    prior_source = getattr(self.code.get_for_audit(prior.compiled_form_id), "source_unit", None)
+                except Exception:
+                    prior_source = None
+                if prior_source == this_source:
+                    return f"confidence_gate refuses: producing act {act_id[:12]} already consumed by act {prior.content_id()[:12]}"
         required = gate.get("require_origin")
         if required is not None and act.confidence_origin != required:
             return (

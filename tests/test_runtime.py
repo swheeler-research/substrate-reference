@@ -1,3 +1,4 @@
+import pytest
 """Tests for the runtime."""
 
 import dataclasses
@@ -648,7 +649,12 @@ def test_a_compiled_form_with_no_witness_payload_refuses():
     unwitnessed = dataclasses.replace(
         runtime.compiled_for(src_cid), witness="", witness_payload={},
     )
-    runtime.register_compiled(unwitnessed)
+    # Registration refuses it outright since the fourth review's trust root;
+    # the invoke-time check is exercised by indexing it directly.
+    from substrate.runtime import UntrustedWitness
+    with pytest.raises(UntrustedWitness):
+        runtime.register_compiled(unwitnessed)
+    runtime._compiled_by_source[src_cid] = runtime.code.put(unwitnessed)
 
     result = runtime.invoke(src_cid, inputs={}, invoking_credential_id=cw_cid)
 
@@ -667,7 +673,10 @@ def test_a_witnessed_form_still_permits_and_a_tampered_one_still_refuses():
     tampered = dataclasses.replace(
         runtime.compiled_for(src_cid), policies=("not-a-real-policy-cid",),
     )
-    runtime.register_compiled(tampered)
+    from substrate.runtime import UntrustedWitness
+    with pytest.raises(UntrustedWitness):
+        runtime.register_compiled(tampered)
+    runtime._compiled_by_source[src_cid] = runtime.code.put(tampered)
     refused = runtime.invoke(src_cid, inputs={}, invoking_credential_id=cw_cid)
     assert isinstance(refused, Refuse)
     assert "compilation integrity check failed" in refused.rationale

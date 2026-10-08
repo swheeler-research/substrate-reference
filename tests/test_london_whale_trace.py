@@ -87,7 +87,7 @@ def test_claim_4_the_same_position_is_permitted_under_escalation_and_recorded():
     out = _authorise(
         scene, notional=1500.0,
         escalation_credential_id=scene["senior_risk_escalation_cid"],
-        invoking_cid=scene["senior_risk_officer_cid"],
+        invoking_cid=scene["senior_risk_escalation_cid"],
     )
     assert out is not None and out["position_authorised"] is True
     act = _last_act(scene)
@@ -240,15 +240,16 @@ def test_the_audit_returns_positions_only_and_creates_no_state_unit():
                    for u in code._store.values())
 
 
-def test_administrative_acts_carry_no_clock_readings():
-    """Disclosed defect, pinned so its closure is noticed."""
+def test_administrative_acts_carry_clock_readings():
+    """The revocation is the trigger the currency bound is measured from, so
+    an administrative act carries the governance tick and the wall-clock
+    reading like any invocation act. Closed in the fourth review."""
     scene = _scene()
+    before = scene["jpm"].runtime.clock.peek() if hasattr(scene["jpm"].runtime.clock, "peek") else None
     scene["jpm"].reset_drift(scene["var_v2_cid"], scene["risk_officer_cid"])
     act = _last_act(scene)
     assert act.kind == "administrative"
-    assert act.governance_tick == 0 and act.recorded_time == "", (
-        "administrative acts now carry clock readings; update the register "
-        "and Appendix A")
+    assert act.governance_tick > 0 and act.recorded_time != ""
 
 
 # =============================================================================
@@ -282,3 +283,20 @@ def test_a_credential_carrying_no_desk_limit_authorises_nothing():
     out = _authorise(scene, notional=1.0, invoking_cid=bare)
     assert out is None
     assert "carries no desk limit" in _last_act(scene).output_or_rationale
+
+
+def test_naming_the_genuine_escalation_without_presenting_it_is_refused():
+    """The fourth review's probe: the desk trader invokes with their own
+    credential and names the genuine escalation credential's identity as an
+    input. The escalation exists, is valid, bears the authority and was
+    issued by the senior risk officer; none of that makes it the trader's."""
+    scene = _scene()
+    out = _authorise(
+        scene, notional=1500.0,
+        escalation_credential_id=scene["senior_risk_escalation_cid"],
+        invoking_cid=scene["desk_trader_cid"],
+    )
+    assert out is None
+    act = _last_act(scene)
+    assert act.verdict == "refuse"
+    assert "named but not presented" in act.output_or_rationale

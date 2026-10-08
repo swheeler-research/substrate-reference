@@ -52,6 +52,11 @@ class Substrate:
     custodian: LocalCustodian
     runtime: Runtime
 
+    def __post_init__(self):
+        # The runtime's trust root is the substrate's own custodian; a
+        # cooperative substrate adds its quorum when the operator joins.
+        self.runtime.trust_custodian(self.custodian)
+
 
 @dataclass
 class Operator:
@@ -166,6 +171,7 @@ class Operator:
     ) -> Act:
         """Record an administrative act on this operator's ledger."""
         inputs = {"action": action, **target_descriptor}
+        clock = self.substrate.runtime.clock
         act = Act(
             kind="administrative",
             previous_act_id=self.substrate.ledger.latest(),
@@ -174,6 +180,8 @@ class Operator:
             inputs=inputs,
             verdict=verdict,
             output_or_rationale=details,
+            governance_tick=clock.tick(),
+            recorded_time=clock.wall(),
         )
         self.substrate.ledger.append(act)
         return act
@@ -271,6 +279,7 @@ def create_substrate(custodian_name: str = "local") -> Substrate:
     ledger = FederatedLedger()
     custodian = LocalCustodian(name=custodian_name)
     runtime = Runtime(code, credentials, ledger)
+    runtime.trust_custodian(custodian)
     return Substrate(
         code=code, credentials=credentials, ledger=ledger,
         custodian=custodian, runtime=runtime,

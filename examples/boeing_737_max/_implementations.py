@@ -105,10 +105,33 @@ def implementation(inputs, runtime, invoking_credential_id):
             " declares no authority references, so no pilot-override authority "
             "can be established for it"
         )
+    # The pilot-override authority is the regulator's to confer, so the
+    # credential must descend from the certifying operator's own root, which
+    # is derived from the invoking (regulator) credential's chain. A
+    # credential a manufacturer mints under its own root with the same
+    # principal is refused: the principal is a string anyone can write.
+    certifier_root = ""
+    for cid in runtime.credential_authority_chain(invoking_credential_id):
+        r = runtime.resolve_credential(cid)
+        name = getattr(r.credential, "principal", "") or ""
+        if r.valid and name.endswith("_root"):
+            certifier_root = cid
+            break
+    if not certifier_root:
+        raise Exception(
+            "certification refused: the certifying credential traces to no operator root"
+        )
     for cid in chain:
         resolved = runtime.resolve_credential(cid)
-        if resolved.bears("authority:pilot_override"):
+        if not resolved.valid or not resolved.bears("authority:pilot_override"):
+            continue
+        if certifier_root in runtime.credential_authority_chain(cid):
             return {}
+        raise Exception(
+            "certification refused: credential " + cid[:12] + " bears the pilot-override "
+            "principal but was not issued under the certifying operator's root; a "
+            "manufacturer cannot confer pilot authority on its own flight-control unit"
+        )
     raise Exception(
         "certification refused: the candidate unit's compiled authority chain "
         "includes no credential bearing pilot-override authority. Flight-control "
@@ -170,7 +193,7 @@ def implementation(inputs, runtime, invoking_credential_id):
     # Retained only for the certification record. The policy no longer
     # relies on it: a declared top-level reference is weaker than the
     # compiled authority chain, which is what the policy now resolves.
-    pilot_in_chain = pilot_credential_id in candidate.credential_refs
+    pilot_declared = pilot_credential_id in candidate.credential_refs
 
     # Invoke the FAA's certification policy units as sub-units. Each is a
     # functional unit; each sub-invocation is a ledger act. A policy that
@@ -202,7 +225,8 @@ def implementation(inputs, runtime, invoking_credential_id):
         "certified": True,
         "candidate_unit_id": candidate_id,
         "sensors_declared": sensors_declared,
-        "pilot_override_credential_present": pilot_in_chain,
+        "pilot_override_credential_declared": pilot_declared,
+        "pilot_override_policy_permitted": True,
         "sensor_policy_act_id": sensor_check.act_id,
         "pilot_policy_act_id": pilot_check.act_id,
     }

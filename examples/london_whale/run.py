@@ -318,7 +318,9 @@ def build_scene():
     risk_officer = _cred("risk_officer", parent_cids=(jpm_root_cid,),
                          constraints={"desk_limit_million_usd": 1000.0})
     senior_risk_officer = _cred("senior_risk_officer", parent_cids=(jpm_root_cid,),
+                                authorities=("invoke:any", "issue:position_escalation"),
                                 constraints={"desk_limit_million_usd": 1000.0})
+    senior_risk_officer_cid = creds.put(senior_risk_officer)
     occ_inspector = _cred(
         "occ_inspector", parent_cids=(occ_root_cid,),
         authorities=("invoke:any", "cross_operator:audit"),
@@ -328,12 +330,16 @@ def build_scene():
     # the principal is part of the credential's content and therefore of its
     # content identity, and the credential derives from JPMorgan's
     # constitutional source rather than from the trading desk.
+    # Issued by the senior risk officer to themself: it descends from the
+    # officer's credential, which bears the authority to issue escalations,
+    # and the officer presents it as the invoking credential when escalating.
     senior_risk_escalation = CredentialUnit(
         name="senior_risk_escalation",
         transfer=TransferDiscipline.DELEGATED,
         principal="governance:senior_risk_escalation",
-        authorities=("authorise:position_above_desk_limit",),
-        credential_refs=(jpm_root_cid,),
+        authorities=("invoke:any", "authorise:position_above_desk_limit"),
+        credential_refs=(senior_risk_officer_cid,),
+        constraints={"desk_limit_million_usd": 1000.0},
     )
     senior_risk_escalation_cid = creds.put(senior_risk_escalation)
 
@@ -345,8 +351,9 @@ def build_scene():
         name="senior_risk_escalation_retired",
         transfer=TransferDiscipline.DELEGATED,
         principal="governance:senior_risk_escalation",
-        authorities=("authorise:position_above_desk_limit",),
-        credential_refs=(jpm_root_cid,),
+        authorities=("invoke:any", "authorise:position_above_desk_limit"),
+        credential_refs=(senior_risk_officer_cid,),
+        constraints={"desk_limit_million_usd": 1000.0},
     )
     retired_escalation_cid = creds.put(retired_escalation)
 
@@ -366,7 +373,6 @@ def build_scene():
 
     desk_trader_cid = creds.put(desk_trader)
     risk_officer_cid = creds.put(risk_officer)
-    senior_risk_officer_cid = creds.put(senior_risk_officer)
     occ_inspector_cid = creds.put(occ_inspector)
 
     # Operators
@@ -573,9 +579,9 @@ def main() -> int:
     print(f"  does derive from the bank's constitutional source, because the")
     print(f"  trader derives from it too. Deriving from the constitutional source")
     print(f"  is necessary and not sufficient, and no test of the credential's")
-    print(f"  own content separates the two. What refuses is that the invoker")
-    print(f"  appears in the escalation credential's authority chain, so the")
-    print(f"  invoker issued what it presents.")
+    print(f"  own content separates the two. What refuses is that no credential")
+    print(f"  above it in its chain bears the authority to issue escalations, so")
+    print(f"  the invoker issued what it presents.")
     print()
     print(f"  What this round does not do is discriminate the fix. It refuses")
     print(f"  under the policy this one replaced as well, because the content")
@@ -596,7 +602,7 @@ def main() -> int:
         notional=1500.0,
         actual_vol=60.0,
         escalation_credential_id=scene["retired_escalation_cid"],
-        invoking_cid=scene["senior_risk_officer_cid"],
+        invoking_cid=scene["retired_escalation_cid"],
         label="senior_risk_officer: position 1500m (escalation revoked)",
     )
     print(f"  Refused: a revoked escalation is not an escalation. The policy")
@@ -611,8 +617,8 @@ def main() -> int:
         notional=1500.0,
         actual_vol=60.0,
         escalation_credential_id=scene["senior_risk_escalation_cid"],
-        invoking_cid=scene["senior_risk_officer_cid"],
-        label="senior_risk_officer: escalated position 1500m",
+        invoking_cid=scene["senior_risk_escalation_cid"],
+        label="senior_risk_officer presents the escalation credential: position 1500m",
     )
     print(f"  The escalation credential is recorded on the ledger entry.")
 

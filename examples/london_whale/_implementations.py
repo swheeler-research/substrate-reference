@@ -116,6 +116,16 @@ def implementation(inputs, runtime, invoking_credential_id):
     context = runtime.invocation_context()
     escalation = runtime.resolve_credential(escalation_id)
 
+    # The escalation must be presented by its holder: the invoking credential
+    # is the escalation credential, or descends from it. Naming the genuine
+    # escalation credential's identity in an input is not presenting it.
+    if not (invoking_credential_id == escalation_id or invoker.descends_from(escalation_id)):
+        raise Exception(
+            "position_limit_policy refuses: escalation credential " + escalation_id[:12] +
+            " is named but not presented; the invoking credential neither is it nor "
+            "descends from it"
+        )
+
     # Does the credential exist, and is the invalidation surface content for
     # it to be relied on? A revoked escalation is not an escalation.
     if not escalation.valid:
@@ -147,24 +157,25 @@ def implementation(inputs, runtime, invoking_credential_id):
             "invoking credential"
         )
 
-    # Did the invoker present its own credential as the escalation? This is
-    # the self-issue case the demonstration claims is impossible, and it is
-    # now impossible because the check is performed rather than asserted.
-    if escalation_id == invoking_credential_id:
+    # Who issued it: an escalation is genuine only if some credential above
+    # it in its chain, other than itself, bears the authority to issue
+    # escalations. A trader who mints a credential with the right principal
+    # under their own credential fails here, whatever it is named.
+    issued_by_authority = False
+    for cid in escalation.authority_chain:
+        if cid == escalation_id:
+            continue
+        issuer = runtime.resolve_credential(cid)
+        issuer_authorities = tuple(getattr(issuer.credential, "authorities", ()) or ())
+        if issuer.valid and "issue:position_escalation" in issuer_authorities:
+            issued_by_authority = True
+            break
+    if not issued_by_authority:
         raise Exception(
-            "position_limit_policy refuses: the invoking credential cannot "
-            "be its own escalation"
+            "position_limit_policy refuses: escalation credential " + escalation_id[:12] +
+            " was not issued under a credential bearing the authority to issue "
+            "escalations, so it is self-issued"
         )
-
-    # Is the invoker in the escalation credential's own ancestry? An invoker
-    # that issued the escalation has self-issued it by a longer route.
-    if invoking_credential_id in escalation.authority_chain:
-        if invoking_credential_id not in invoker_sources:
-            raise Exception(
-                "position_limit_policy refuses: the invoking credential is in "
-                "the escalation credential's authority chain, so the "
-                "escalation is self-issued"
-            )
     return {}
 """
 

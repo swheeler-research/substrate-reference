@@ -243,7 +243,7 @@ def test_cross_operator_invocation_lands_on_target_operator_ledger():
         credential_refs=(parl_cid,),  # delegated under UK Parliament
     )
     dwp.code.put(ho_unit)
-    ho.runtime.register_compiled(compile_unit(ho_unit, ho.code, ho.credentials))
+    ho.runtime.register_compiled(compile_unit(ho_unit, ho.code, ho.credentials, custodian=ho.custodian))
 
     # Now invoke from DWP's runtime into Home Office.
     result = dwp.runtime.invoke_in(
@@ -278,7 +278,7 @@ def test_cross_operator_invocation_from_inside_python_impl():
         credential_refs=(parl_cid,),
     )
     ho.code.put(ho_unit)
-    ho.runtime.register_compiled(compile_unit(ho_unit, ho.code, ho.credentials))
+    ho.runtime.register_compiled(compile_unit(ho_unit, ho.code, ho.credentials, custodian=ho.custodian))
 
     # DWP unit whose impl invokes the HO unit.
     dwp_source = f"""
@@ -299,7 +299,7 @@ def implementation(inputs, runtime, invoking_credential_id):
         state_refs=(ho_impl_cid,),
     )
     dwp.code.put(dwp_unit)
-    dwp.runtime.register_compiled(compile_unit(dwp_unit, dwp.code, dwp.credentials))
+    dwp.runtime.register_compiled(compile_unit(dwp_unit, dwp.code, dwp.credentials, custodian=dwp.custodian))
 
     result = dwp.runtime.invoke(dwp_unit.content_id(), {"applicant": "x"}, cw_cid)
     assert isinstance(result, Permit)

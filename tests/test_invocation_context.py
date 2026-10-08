@@ -601,11 +601,13 @@ def test_the_deployed_policy_separates_them_and_a_name_test_does_not():
 # a different one and none saw the act's. These tests pin the corrected
 # behaviour and would fail against that version.
 
+# The probe is a module-level list reached through builtins, because an
+# implementation is handed a facade it cannot hang attributes on.
 _CTX_REPORTER_POLICY = """
+import builtins
 def implementation(inputs, runtime, invoking_credential_id):
     c = runtime.invocation_context()
-    runtime._probe = getattr(runtime, "_probe", [])
-    runtime._probe.append((c.target_unit_id, c.entry_tick, len(c.state)))
+    builtins._CTX_PROBE.append((c.target_unit_id, c.entry_tick, len(c.state)))
     return {}
 """
 
@@ -649,6 +651,8 @@ def _wire_three_policies():
         state_refs=(pimpl, held, timpl),
     )
     code.put(unit)
+    import builtins
+    builtins._CTX_PROBE = []
     runtime = Runtime(code, creds, led, clock=FixedClock())
     for p in pols:
         runtime.register_compiled(compile_unit(p, code, creds, custodian=LocalCustodian("t")))
@@ -660,8 +664,8 @@ def _wire_three_policies():
 def test_every_policy_sees_the_governed_units_identity_not_its_own():
     runtime, unit, caller = _wire_three_policies()
     assert isinstance(runtime.invoke(unit.content_id(), {}, caller), Permit)
-    targets = {t for t, _, _ in runtime._probe}
-    assert len(runtime._probe) == 3
+    targets = {t for t, _, _ in __import__('builtins')._CTX_PROBE}
+    assert len(__import__('builtins')._CTX_PROBE) == 3
     assert targets == {unit.content_id()}
 
 
@@ -669,7 +673,7 @@ def test_every_policy_sees_the_same_entry_tick():
     """Not one tick each. The act is one act however many policies govern it."""
     runtime, unit, caller = _wire_three_policies()
     runtime.invoke(unit.content_id(), {}, caller)
-    ticks = {t for _, t, _ in runtime._probe}
+    ticks = {t for _, t, _ in __import__('builtins')._CTX_PROBE}
     assert len(ticks) == 1
 
 
@@ -678,7 +682,7 @@ def test_every_policy_sees_the_governed_units_state_not_its_own():
     showed every policy an empty mapping."""
     runtime, unit, caller = _wire_three_policies()
     runtime.invoke(unit.content_id(), {}, caller)
-    counts = {n for _, _, n in runtime._probe}
+    counts = {n for _, _, n in __import__('builtins')._CTX_PROBE}
     assert counts == {3}
 
 
@@ -686,7 +690,7 @@ def test_the_committing_tick_is_later_than_the_entry_tick_by_the_policy_count():
     """Which is why the context cannot predict it, and no longer claims to."""
     runtime, unit, caller = _wire_three_policies()
     runtime.invoke(unit.content_id(), {}, caller)
-    entry = {t for _, t, _ in runtime._probe}.pop()
+    entry = {t for _, t, _ in __import__('builtins')._CTX_PROBE}.pop()
     committing = list(runtime.ledger)[-1].governance_tick
     assert committing == entry + 4
 

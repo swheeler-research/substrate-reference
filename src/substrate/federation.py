@@ -307,6 +307,40 @@ def verify_compiled_form(compiled_form) -> bool:
     return False
 
 
+def verify_compiled_form_trusted(compiled_form, trusted_keys, threshold=None) -> bool:
+    """Verify a compiled form's witness against a trust root the verifier
+    holds, not against keys the payload itself carries.
+
+    `trusted_keys` is the set of custodian public keys (hex) the verifier
+    recognises; `threshold` is the number of trusted contributions a quorum
+    witness must carry, defaulting to the payload's own threshold. A
+    single-signature witness passes only if its key is trusted. A quorum
+    witness passes only if at least `threshold` contributions verify AND
+    are from trusted keys. Without this, a form signed by any fresh key
+    verifies, which is a signature check and not an integrity check.
+    """
+    if not verify_compiled_form(compiled_form):
+        return False
+    payload = compiled_form.witness_payload
+    trusted = set(trusted_keys or ())
+    if not trusted:
+        return False
+    if payload.get("type") == "single_signature":
+        return payload.get("public_key") in trusted
+    if payload.get("type") == "quorum_witness":
+        expected_hash = payload.get("payload_hash")
+        need = threshold if isinstance(threshold, int) and threshold >= 1 else payload.get("threshold", 1)
+        valid = 0
+        for _name, contrib in (payload.get("contributions") or {}).items():
+            if not isinstance(contrib, dict):
+                continue
+            key = contrib.get("public_key", "")
+            if key in trusted and verify_witness(key, expected_hash, contrib.get("signature", "")):
+                valid += 1
+        return valid >= need
+    return False
+
+
 def verify_quorum_witness(payload_hash: str, quorum_payload: dict) -> bool:
     """Verify a quorum multi-signature.
 
@@ -410,6 +444,11 @@ class CooperativeSubstrate:
         cid = operator.content_id
         self._members[cid] = operator
         operator.substrate.runtime.cooperative_substrate = self
+        # Every member's runtime trusts the cooperative quorum, which
+        # changes as members join, so refresh all of them.
+        quorum = self.custodian
+        for member in self._members.values():
+            member.substrate.runtime.trust_custodian(quorum)
         return cid
 
     def operator(self, operator_content_id: str):
