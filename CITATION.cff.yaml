@@ -8,7 +8,7 @@ authors:
     given-names: S.
     orcid: "https://orcid.org/0009-0009-8693-0148"
     affiliation: "Independent researcher"
-version: "v1.0"
+version: "v2.0"
 date-released: 2026-05-16
 url: "https://github.com/swheeler-research/substrate-reference"
 repository-code: "https://github.com/swheeler-research/substrate-reference"
@@ -20,7 +20,7 @@ identifiers:
     description: "Concept DOI (all versions)"
   - type: doi
     value: "10.5281/zenodo.20238428"
-    description: "Version DOI (v1.0)"
+    description: "Version DOI (v1.0; replace with the v2.0 version DOI at deposit)"
   - type: url
     value: "https://zenodo.org/records/20238428"
     description: "Zenodo record"
@@ -50,7 +50,7 @@ references:
         affiliation: "Independent researcher"
     year: 2026
     month: 5
-    version: "v1.0"
+    version: "v2.0"
     publisher:
       name: Zenodo
     doi: "10.5281/zenodo.19960841"
@@ -60,7 +60,7 @@ references:
         description: "Concept DOI (all versions)"
       - type: doi
         value: "10.5281/zenodo.19960842"
-        description: "Version DOI (v1.0)"
+        description: "Version DOI (v1.0; replace with the v2.0 version DOI at deposit)"
       - type: url
         value: "https://zenodo.org/records/19960842"
         description: "Zenodo record"
@@ -75,7 +75,7 @@ references:
         affiliation: "Independent researcher"
     year: 2026
     month: 5
-    version: "v1.0"
+    version: "v2.0"
     publisher:
       name: Zenodo
     doi: "10.5281/zenodo.20237900"
@@ -85,7 +85,7 @@ references:
         description: "Concept DOI (all versions)"
       - type: doi
         value: "10.5281/zenodo.20237901"
-        description: "Version DOI (v1.0)"
+        description: "Version DOI (v1.0; replace with the v2.0 version DOI at deposit)"
       - type: url
         value: "https://zenodo.org/records/20237901"
         description: "Zenodo record"
