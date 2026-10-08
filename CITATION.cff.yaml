@@ -20,7 +20,7 @@ identifiers:
     description: "Concept DOI (all versions)"
   - type: doi
     value: "10.5281/zenodo.20238428"
-    description: "Version DOI (v1.0; replace with the v2.0 version DOI at deposit)"
+    description: "Version DOI (v1.0; the software record becomes v2.0 at the GitHub release)"
   - type: url
     value: "https://zenodo.org/records/20238428"
     description: "Zenodo record"
@@ -59,10 +59,10 @@ references:
         value: "10.5281/zenodo.19960841"
         description: "Concept DOI (all versions)"
       - type: doi
-        value: "10.5281/zenodo.19960842"
-        description: "Version DOI (v1.0; replace with the v2.0 version DOI at deposit)"
+        value: "10.5281/zenodo.23245365"
+        description: "Version DOI (v2.0)"
       - type: url
-        value: "https://zenodo.org/records/19960842"
+        value: "https://zenodo.org/records/23245365"
         description: "Zenodo record"
     license: CC-BY-4.0
     abstract: "The principal architectural paper. Three primitive types compose under eight protocol mechanisms; twelve cases from public record exercise the architecture; the constitutional argument and adoption-space treatment are developed at full depth."
@@ -84,10 +84,10 @@ references:
         value: "10.5281/zenodo.20237900"
         description: "Concept DOI (all versions)"
       - type: doi
-        value: "10.5281/zenodo.20237901"
-        description: "Version DOI (v1.0; replace with the v2.0 version DOI at deposit)"
+        value: "10.5281/zenodo.23245442"
+        description: "Version DOI (v2.0)"
       - type: url
-        value: "https://zenodo.org/records/20237901"
+        value: "https://zenodo.org/records/23245442"
         description: "Zenodo record"
     license: CC-BY-4.0
     abstract: "Technical companion to the principal paper. Specifies the architecture at conformance depth and documents this reference implementation that conforms to it."
