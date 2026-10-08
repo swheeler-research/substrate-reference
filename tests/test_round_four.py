@@ -111,4 +111,3 @@ def test_an_implementation_cannot_reach_past_its_facade():
     runtime.register_compiled(compile_unit(parent, runtime.code, runtime.credentials, custodian=own))
     r = runtime.invoke(parent_cid, {"child": unit_cid}, op_cid)
     assert isinstance(r, Refuse) and "AttributeError" in r.rationale
-    assert "_invoke_as" not in dir(type(r)) or True

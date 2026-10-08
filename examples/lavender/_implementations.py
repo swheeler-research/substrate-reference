@@ -82,16 +82,57 @@ def implementation(inputs, runtime, invoking_credential_id):
 """
 
 
+# A helper every unit on the strike path uses: the facts about a target
+# are read from the assessment act the invoker names on the ledger, not
+# from numbers the invoker types. The earlier version read civilian_estimate
+# and the rest from the inputs, so an invoker could cite a genuine
+# assessment for the confidence gate and type its own casualty figures.
+_ASSESSMENT_FACTS = """
+def _assessment_facts(inputs, runtime):
+    act_id = inputs.get("assessment_act", "")
+    if not act_id:
+        raise Exception("no assessment act named; facts must come from the ledger")
+    act = runtime.act_by_id(act_id)
+    if act is None:
+        raise Exception("assessment act " + act_id[:12] + " is not on this ledger")
+    if act.verdict != "permit" or not isinstance(act.output_or_rationale, dict):
+        raise Exception("assessment act " + act_id[:12] + " did not permit")
+    facts = act.output_or_rationale
+    if facts.get("target_id") != inputs.get("target_id"):
+        raise Exception("assessment act " + act_id[:12] + " concerns " +
+                        repr(facts.get("target_id")) + ", not " + repr(inputs.get("target_id")))
+    return facts
+"""
+
+
+# review_target: the human review as an act. The reviewer invokes this
+# unit, under their own credential, naming the assessment they reviewed;
+# the act on the ledger is the review. A policy that wants evidence of
+# review resolves that act, rather than reading a credential identifier
+# the operations officer typed into the strike's inputs.
+REVIEW_TARGET = _ASSESSMENT_FACTS + """
+def implementation(inputs, runtime, invoking_credential_id):
+    facts = _assessment_facts(inputs, runtime)
+    return {
+        "target_id": inputs["target_id"],
+        "assessment_act": inputs["assessment_act"],
+        "assessment_confidence": facts.get("confidence"),
+        "review": "confirmed",
+    }
+"""
+
+
 # Policy: applies a per-target-category ratio bound between estimated
 # civilian casualties and military value. Refuses if the ratio exceeds
 # the category's bound. The bounds are themselves declared in the policy
 # unit's content — deploying a more permissive set is a new policy unit
 # (new content_id), structurally visible in any audit.
-PROPORTIONALITY_POLICY = """
+PROPORTIONALITY_POLICY = _ASSESSMENT_FACTS + """
 def implementation(inputs, runtime, invoking_credential_id):
-    civilians = inputs.get("civilian_estimate", 0)
-    military_value = inputs.get("military_value_score", 0)
-    category = inputs.get("target_category", "unknown")
+    facts = _assessment_facts(inputs, runtime)
+    civilians = facts.get("civilian_estimate", 0)
+    military_value = facts.get("military_value_score", 0)
+    category = facts.get("target_category", "unknown")
     # Ratio: max permitted civilians per unit of military value. Lower
     # values are more restrictive. These are stylised; a real policy
     # would be far more nuanced and would be authored under the legal
@@ -116,24 +157,40 @@ def implementation(inputs, runtime, invoking_credential_id):
 """
 
 
-# Policy: refuses if no human reviewer credential is attached OR if
-# the credential is a "bulk_approval" marker indicating rubber-stamping.
-# The reviewer_name is passed alongside the credential id so the policy
-# can inspect it without needing to traverse the archive. In a real
-# system, the substrate cannot intrinsically know which credentials
-# represent rubber-stamping; what it can do is make the credential and
-# its name structurally visible on the ledger, where patterns of misuse
-# become detectable.
+# Policy: requires evidence of review as an act on the ledger. The strike
+# names a review act; the policy resolves it, checks that it was produced
+# by the review unit this policy names, that it concerns the same target
+# and the same assessment, that the credential which made it bears
+# individual-strike review authority and is not the invoker nor issued by
+# the invoker, and that it has not already been consumed by a strike. The
+# earlier version resolved a credential identifier typed into the strike's
+# inputs, which established that a reviewer existed, not that anyone had
+# reviewed anything. The review unit's identity is substituted into this
+# source at scene build, so it is part of the policy's content.
 MEANINGFUL_REVIEW_POLICY = """
-def implementation(inputs, runtime, invoking_credential_id):
-    # The reviewer is established by resolving the credential, not by reading
-    # the name the caller supplied alongside it. The earlier version refused a
-    # reviewer whose supplied name contained "bulk_approval", which an operator
-    # minded to approve in bulk had only to omit.
-    reviewer_cid = inputs.get("reviewer_credential_id", "")
-    if not reviewer_cid:
-        raise Exception("no reviewer credential attached; meaningful human review required")
+REVIEW_UNIT = "__REVIEW_UNIT__"
 
+def implementation(inputs, runtime, invoking_credential_id):
+    review_id = inputs.get("review_act", "")
+    if not review_id:
+        raise Exception("no review act named; meaningful human review required")
+    review = runtime.act_by_id(review_id)
+    if review is None:
+        raise Exception("review act " + review_id[:12] + " is not on this ledger")
+    if review.verdict != "permit" or not isinstance(review.output_or_rationale, dict):
+        raise Exception("review act " + review_id[:12] + " did not permit")
+    producer = runtime.code.get_for_audit(review.compiled_form_id)
+    if getattr(producer, "source_unit", None) != REVIEW_UNIT:
+        raise Exception("act " + review_id[:12] + " was not produced by the review unit")
+    reviewed = review.inputs if isinstance(review.inputs, dict) else {}
+    if reviewed.get("target_id") != inputs.get("target_id"):
+        raise Exception("review act " + review_id[:12] + " concerns " +
+                        repr(reviewed.get("target_id")) + ", not " + repr(inputs.get("target_id")))
+    if reviewed.get("assessment_act") != inputs.get("assessment_act"):
+        raise Exception("review act " + review_id[:12] + " reviewed assessment " +
+                        str(reviewed.get("assessment_act"))[:12] + ", not the one this strike names")
+
+    reviewer_cid = review.invoking_credential_id
     reviewer = runtime.resolve_credential(reviewer_cid)
     if not reviewer.valid:
         raise Exception("reviewer credential " + reviewer_cid[:12] + " is " +
@@ -160,6 +217,16 @@ def implementation(inputs, runtime, invoking_credential_id):
     if not (invoker_sources & set(runtime.constitutional_sources_of(reviewer_cid))):
         raise Exception("the reviewer credential shares no constitutional source "
                         "with the invoker")
+    # One review, one strike. The consumption record is a permitted strike
+    # act whose output names this review act; policy acts carry the strike's
+    # inputs too, and are not consumption.
+    for prior in runtime.ledger:
+        if prior.kind != "invocation" or prior.verdict != "permit":
+            continue
+        prior_out = prior.output_or_rationale if isinstance(prior.output_or_rationale, dict) else {}
+        if prior_out.get("review_act") == review_id and prior_out.get("decision") is not None:
+            raise Exception("review act " + review_id[:12] + " already consumed by strike act " +
+                            prior.content_id()[:12])
     return {}
 """
 
@@ -169,21 +236,24 @@ def implementation(inputs, runtime, invoking_credential_id):
 # authorised. If all permit, the impl calls legal_clearance on the
 # Legal Review operator via cross-operator invocation. Only if legal
 # clearance permits does the unit return "strike_authorised".
-AUTHORISE_STRIKE = """
+AUTHORISE_STRIKE = _ASSESSMENT_FACTS + """
 def implementation(inputs, runtime, invoking_credential_id):
     target_id = inputs["target_id"]
+    facts = _assessment_facts(inputs, runtime)
+    review = runtime.act_by_id(inputs["review_act"])
     # Cross-operator: invoke Legal Review's clearance unit. The cooperative
     # substrate authorises this access; the invocation is recorded on
-    # both ledgers.
+    # both ledgers. The facts handed across are the assessment act's.
     legal_op_id = inputs["legal_review_operator_id"]
     legal_unit_id = inputs["legal_review_unit_id"]
     clearance = runtime.invoke_in(legal_op_id, legal_unit_id,
                                    {
                                        "target_id": target_id,
-                                       "location_class": inputs.get("location_class"),
-                                       "civilian_estimate": inputs.get("civilian_estimate"),
-                                       "military_value_score": inputs.get("military_value_score"),
-                                       "target_category": inputs.get("target_category"),
+                                       "assessment_act": inputs["assessment_act"],
+                                       "location_class": facts.get("location_class"),
+                                       "civilian_estimate": facts.get("civilian_estimate"),
+                                       "military_value_score": facts.get("military_value_score"),
+                                       "target_category": facts.get("target_category"),
                                    },
                                    invoking_credential_id)
     if clearance.__class__.__name__ != "Permit":
@@ -196,10 +266,12 @@ def implementation(inputs, runtime, invoking_credential_id):
     return {
         "target_id": target_id,
         "decision": "strike_authorised",
-        "reviewed_by": inputs.get("reviewer_credential_id"),
+        "assessment_act": inputs["assessment_act"],
+        "review_act": inputs["review_act"],
+        "reviewed_by": review.invoking_credential_id if review is not None else "",
         "legal_clearance_act_id": clearance.act_id,
-        "civilian_estimate": inputs.get("civilian_estimate"),
-        "military_value_score": inputs.get("military_value_score"),
+        "civilian_estimate": facts.get("civilian_estimate"),
+        "military_value_score": facts.get("military_value_score"),
     }
 """
 

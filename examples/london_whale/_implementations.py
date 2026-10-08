@@ -119,11 +119,10 @@ def implementation(inputs, runtime, invoking_credential_id):
     # The escalation must be presented by its holder: the invoking credential
     # is the escalation credential, or descends from it. Naming the genuine
     # escalation credential's identity in an input is not presenting it.
-    if not (invoking_credential_id == escalation_id or invoker.descends_from(escalation_id)):
+    if invoking_credential_id != escalation_id:
         raise Exception(
             "position_limit_policy refuses: escalation credential " + escalation_id[:12] +
-            " is named but not presented; the invoking credential neither is it nor "
-            "descends from it"
+            " is named but not presented; the invoking credential is not it"
         )
 
     # Does the credential exist, and is the invalidation surface content for

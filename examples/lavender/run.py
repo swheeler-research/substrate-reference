@@ -26,8 +26,8 @@ Stylised targets:
               floor refuses.
   target_003: high-value commander, dense residential, high civilian
               estimate.  EXPECTED: proportionality refuses.
-  target_004: high-value, but reviewer credential is a bulk-approval
-              marker.  EXPECTED: meaningful_review refuses.
+  target_004: high-value, but the review act was made under a
+              bulk-approval credential.  EXPECTED: meaningful_review refuses.
   target_005: high-value, but location is a protected site (hospital).
               EXPECTED: legal_clearance refuses cross-operator.
 
@@ -158,15 +158,15 @@ def build_scene():
     assess_impl = python_implementation(impls.ASSESS_TARGET, name="assess_target_impl")
     confidence_impl = python_implementation(impls.CONFIDENCE_FLOOR_POLICY, name="confidence_floor_policy_impl")
     proportionality_impl = python_implementation(impls.PROPORTIONALITY_POLICY, name="proportionality_policy_impl")
-    meaningful_impl = python_implementation(impls.MEANINGFUL_REVIEW_POLICY, name="meaningful_review_policy_impl")
     authorise_impl = python_implementation(impls.AUTHORISE_STRIKE, name="authorise_strike_impl")
     legal_impl = python_implementation(impls.LEGAL_CLEARANCE, name="legal_clearance_impl")
     audit_impl = python_implementation(impls.AUDIT_TARGETING, name="audit_targeting_impl")
     investigate_impl = python_implementation(impls.INVESTIGATE_TARGETING, name="investigate_targeting_impl")
     assess_impl_cid = code.put(assess_impl)
+    review_impl = python_implementation(impls.REVIEW_TARGET, name="review_target_impl")
+    review_impl_cid = code.put(review_impl)
     confidence_impl_cid = code.put(confidence_impl)
     proportionality_impl_cid = code.put(proportionality_impl)
-    meaningful_impl_cid = code.put(meaningful_impl)
     authorise_impl_cid = code.put(authorise_impl)
     legal_impl_cid = code.put(legal_impl)
     audit_impl_cid = code.put(audit_impl)
@@ -204,6 +204,26 @@ def build_scene():
     )
     code.put(assess_target)
 
+    # The review as an act: the reviewer invokes this unit naming the
+    # assessment reviewed. The meaningful-review policy accepts review acts
+    # from this unit and no other, so its identity is baked into the
+    # policy's implementation source below, and therefore into the policy's
+    # content_id.
+    review_target = FunctionalUnit(
+        name="review_target",
+        contract_pattern=ContractPattern.SPECIFICATION_BOUNDED,
+        spec={"inputs": {"target_id": "str", "assessment_act": "str"},
+              "outputs": {"review": "str"}},
+        implementation_ref=review_impl_cid,
+        credential_refs=(constitutional_cid, idf_root_cid),
+    )
+    code.put(review_target)
+    meaningful_impl = python_implementation(
+        impls.MEANINGFUL_REVIEW_POLICY.replace("__REVIEW_UNIT__", review_target.content_id()),
+        name="meaningful_review_policy_impl",
+    )
+    meaningful_impl_cid = code.put(meaningful_impl)
+
     confidence_policy = FunctionalUnit(
         name="confidence_floor_policy",
         contract_pattern=ContractPattern.SPECIFICATION_BOUNDED,
@@ -221,6 +241,8 @@ def build_scene():
                 # The act must be assess_target's, and may be consumed once.
                 "producing_unit": assess_target.content_id(),
                 "single_use": True,
+                # And the act must concern the target this strike names.
+                "subject_field": "target_id",
             },
         },
         implementation_ref=confidence_impl_cid,
@@ -238,7 +260,11 @@ def build_scene():
         name="meaningful_review_policy",
         contract_pattern=ContractPattern.SPECIFICATION_BOUNDED,
         spec={"name": "meaningful_review_policy",
-              "refuses_when": "reviewer is empty or marked as bulk_approval"},
+              "refuses_when": ("no review act is named, or the review act was not made by "
+                               "the review unit on this target and assessment, or its "
+                               "credential lacks individual-strike review authority, or it "
+                               "is the invoker's own or issued by the invoker, or it has "
+                               "already been consumed")},
         implementation_ref=meaningful_impl_cid,
         credential_refs=(constitutional_cid, idf_root_cid),
     )
@@ -295,14 +321,14 @@ def build_scene():
         name="authorise_strike",
         contract_pattern=ContractPattern.HYBRID,
         spec={
+            # The strike names acts, not facts: the assessment act and the
+            # review act on this ledger. Every fact about the target is
+            # read from the assessment act by the policies and by the
+            # implementation.
             "inputs": {
                 "target_id": "str",
-                "confidence": "float",
-                "civilian_estimate": "int",
-                "military_value_score": "int",
-                "target_category": "str",
-                "location_class": "str",
-                "reviewer_credential_id": "str",
+                "assessment_act": "str",
+                "review_act": "str",
                 "legal_review_operator_id": "str",
                 "legal_review_unit_id": "str",
             },
@@ -366,7 +392,7 @@ def build_scene():
     code.put(investigate_targeting)
 
     # ---- Compile and register ----
-    for u in (assess_target, confidence_policy, proportionality_policy, meaningful_policy):
+    for u in (assess_target, review_target, confidence_policy, proportionality_policy, meaningful_policy):
         idf.runtime.register_compiled(compile_unit(u, code, creds, custodian=idf.custodian))
     # Cross-operator units witnessed by joint custodian.
     joint = coop.custodian
@@ -393,6 +419,7 @@ def build_scene():
         "bulk_reviewer_cid": bulk_reviewer_cid,
         "legal_officer_cid": legal_officer_cid,
         "assess_target": assess_target,
+        "review_target": review_target,
         "authorise_strike": authorise_strike,
         "legal_clearance": legal_clearance,
         "audit_targeting": audit_targeting,
@@ -418,30 +445,37 @@ def _name(scene, cid):
     return scene["credential_names"].get(cid, cid[:12] + "...")
 
 
-def _try_strike(scene, target_id, reviewer_cid):
-    """Run assess_target then authorise_strike for a target with a given reviewer."""
+def _try_strike(scene, target_id, reviewer_cid, review_act=None, assessment_act=None):
+    """Assess, review, then attempt the strike. The reviewer invokes the
+    review unit under their own credential; the strike names the assessment
+    act and the review act. A caller may name acts of its own choosing, which
+    the tests use to show what the policies refuse."""
     idf = scene["idf"]
     legal = scene["legal"]
-    assessment = idf.runtime.invoke(
-        scene["assess_target"].content_id(),
-        {"target_id": target_id},
-        scene["operations_cid"],
-    )
-    if not isinstance(assessment, Permit):
-        return ("assessment_refused", assessment)
-    a = assessment.output
+    if assessment_act is None:
+        assessment = idf.runtime.invoke(
+            scene["assess_target"].content_id(),
+            {"target_id": target_id},
+            scene["operations_cid"],
+        )
+        if not isinstance(assessment, Permit):
+            return ("assessment_refused", assessment)
+        assessment_act = assessment.act_id
+    if review_act is None:
+        review = idf.runtime.invoke(
+            scene["review_target"].content_id(),
+            {"target_id": target_id, "assessment_act": assessment_act},
+            reviewer_cid,
+        )
+        if not isinstance(review, Permit):
+            return ("review_refused", review)
+        review_act = review.act_id
     strike = idf.runtime.invoke(
         scene["authorise_strike"].content_id(),
         {
             "target_id": target_id,
-            "confidence": a["confidence"],
-            "assessment_act": assessment.act_id,
-            "civilian_estimate": a["civilian_estimate"],
-            "military_value_score": a["military_value_score"],
-            "target_category": a["target_category"],
-            "location_class": a["location_class"],
-            "reviewer_credential_id": reviewer_cid,
-            "reviewer_name": scene["credential_names"].get(reviewer_cid, ""),
+            "assessment_act": assessment_act,
+            "review_act": review_act,
             "legal_review_operator_id": legal.content_id,
             "legal_review_unit_id": scene["legal_clearance"].content_id(),
         },
@@ -454,6 +488,10 @@ def _print_strike(scene, label, target_id, status, result):
     print(f"  {label} (target_id={target_id})")
     if status == "assessment_refused":
         print(f"    ASSESSMENT REFUSED")
+        print(f"    rationale: {result.rationale}")
+        return
+    if status == "review_refused":
+        print(f"    REVIEW REFUSED")
         print(f"    rationale: {result.rationale}")
         return
     if isinstance(result, Permit):
@@ -478,7 +516,8 @@ def main() -> int:
     print(f"  Policies on authorise_strike:")
     print(f"    confidence_floor_policy:    refuses if confidence < 0.90")
     print(f"    proportionality_policy:     refuses if civilians/military_value > category bound")
-    print(f"    meaningful_review_policy:   refuses if reviewer is missing or is a bulk-approval marker")
+    print(f"    meaningful_review_policy:   refuses unless a review act by a credential bearing")
+    print(f"                                individual-strike review authority is on the ledger")
     print(f"  Cross-operator legal clearance required before strike is authorised.")
 
     # ---- The five target cases ----
@@ -497,10 +536,11 @@ def main() -> int:
     _print_strike(scene, "target_003:", "target_003", s, r)
     print(f"  EXPECTED: proportionality_policy refuses (40/50 = 0.80 > 0.30 bound).")
 
-    _header("Target 004: high-value, but reviewer is a bulk-approval marker")
+    _header("Target 004: high-value, but the review act was made under a bulk-approval credential")
     s, r = _try_strike(scene, "target_004", scene["bulk_reviewer_cid"])
     _print_strike(scene, "target_004:", "target_004", s, r)
-    print(f"  EXPECTED: meaningful_review_policy refuses (reviewer is bulk_approval).")
+    print(f"  EXPECTED: meaningful_review_policy refuses (the review act's credential")
+    print(f"  bears review:bulk, not review:individual_strikes).")
 
     _header("Target 005: high-value, but location is a hospital (protected site)")
     s, r = _try_strike(scene, "target_005", scene["dedicated_reviewer_cid"])
@@ -601,9 +641,12 @@ def main() -> int:
     print(f"     would require substituting a more permissive policy unit — a new")
     print(f"     content_id, visible in any audit.")
     print()
-    print(f"  4. MEANINGFUL HUMAN REVIEW. The reviewer's credential is structurally")
-    print(f"     recorded. Bulk-approval credentials refuse; patterns of misuse are")
-    print(f"     visible on the ledger.")
+    print(f"  4. MEANINGFUL HUMAN REVIEW. The review is an act on the ledger, made")
+    print(f"     under the reviewer's own credential and naming the assessment")
+    print(f"     reviewed. A strike names that act; the policy refuses a review act")
+    print(f"     made under a bulk-approval credential, one made by the invoker or a")
+    print(f"     credential the invoker issued, one for another target or assessment,")
+    print(f"     and one already consumed by a strike.")
     print()
     print(f"  5. INDEPENDENT LEGAL REVIEW. The cooperative substrate gives Legal")
     print(f"     Review binding clearance authority. Strikes cannot be authorised")

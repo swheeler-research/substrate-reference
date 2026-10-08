@@ -166,6 +166,9 @@ def validate_confidence_gate(section: Any) -> None:
     producing_unit = section.get("producing_unit")
     if producing_unit is not None and (not isinstance(producing_unit, str) or not producing_unit):
         raise ConfidenceSpecError("confidence_gate.producing_unit must be a non-empty string")
+    subject_field = section.get("subject_field")
+    if subject_field is not None and (not isinstance(subject_field, str) or not subject_field):
+        raise ConfidenceSpecError("confidence_gate.subject_field must be a non-empty string")
     if "single_use" in section and not isinstance(section["single_use"], bool):
         raise ConfidenceSpecError("confidence_gate.single_use must be a bool")
     require_origin = section.get("require_origin")

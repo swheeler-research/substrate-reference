@@ -366,8 +366,9 @@ def build_scene():
         name="senior_risk_escalation",
         transfer=TransferDiscipline.DELEGATED,
         principal="governance:senior_risk_escalation",
-        authorities=("authorise:position_above_desk_limit",),
+        authorities=("invoke:any", "authorise:position_above_desk_limit"),
         credential_refs=(desk_trader.content_id(),),
+        constraints={"desk_limit_million_usd": 1000.0},
     )
     desk_self_escalation_cid = creds.put(desk_self_escalation)
 
@@ -571,8 +572,8 @@ def main() -> int:
         notional=1500.0,
         actual_vol=60.0,
         escalation_credential_id=scene["desk_self_escalation_cid"],
-        invoking_cid=scene["desk_trader_cid"],
-        label="desk_trader: position 1500m (self-issued escalation credential)",
+        invoking_cid=scene["desk_self_escalation_cid"],
+        label="desk_trader presents a self-issued escalation credential: position 1500m",
     )
     print(f"  Refused, and note which check does it. This credential carries the")
     print(f"  same name and the same principal as the genuine authority, and it")

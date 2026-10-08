@@ -84,74 +84,55 @@ from substrate.primitives import StateUnit
 
 class _AuditLedger:
     """Read-only view of a ledger for implementations: iteration, length,
-    and the head. No append."""
+    and the head. No append, and no attribute referring to the ledger."""
+    __slots__ = ("__iter__", "__len__", "latest", "verify")
     def __init__(self, ledger):
-        self._ledger = ledger
-    def __iter__(self):
-        return iter(self._ledger)
-    def __len__(self):
-        return len(self._ledger)
-    def latest(self):
-        return self._ledger.latest()
-    def verify(self):
-        return self._ledger.verify()
+        self.__iter__ = lambda: iter(ledger)
+        self.__len__ = lambda: len(ledger)
+        self.latest = lambda: ledger.latest()
+        self.verify = lambda: ledger.verify()
 
 
 class _AuditCode:
     """Read-only view of a code archive for implementations."""
+    __slots__ = ("get_for_audit",)
     def __init__(self, code):
-        self._code = code
-    def get_for_audit(self, content_id):
-        return self._code.get_for_audit(content_id)
+        self.get_for_audit = lambda content_id: code.get_for_audit(content_id)
 
 
 class _AuditDrift:
     """Read-only view of the drift monitor for implementations."""
+    __slots__ = ("is_drifted", "drift_reason")
     def __init__(self, monitor):
-        self._m = monitor
-    def is_drifted(self, unit_content_id):
-        return self._m.is_drifted(unit_content_id)
-    def drift_reason(self, unit_content_id):
-        return self._m.drift_reason(unit_content_id)
+        self.is_drifted = lambda unit_content_id: monitor.is_drifted(unit_content_id)
+        self.drift_reason = lambda unit_content_id: monitor.drift_reason(unit_content_id)
 
 
 class ImplementationRuntime:
     """What an implementation is handed in place of the Runtime: the
-    governed entry points and read-only views, nothing that can commit,
-    register, reset or detach. The live Runtime was previously handed
-    over, which let an implementation call its internals; the companion
-    records that this facade is the Python path's whole surface."""
-    __slots__ = ("_rt", "ledger", "code", "drift_monitor")
+    governed entry points and read-only views, bound as closures so that no
+    attribute of this object refers to the Runtime. This is a boundary by
+    convention: Python exposes closures to reflection, and the Python path
+    has no memory boundary, so a hostile implementation that reflects on
+    these functions can still reach the runtime. What the facade denies is
+    the straightforward call. The WebAssembly path is the sandboxed one."""
+    __slots__ = ("invoke", "invoke_in", "invocation_context", "resolve_credential",
+                 "credential_authority_chain", "compiled_authority_chain",
+                 "constitutional_sources_of", "act_by_id", "ledger", "code", "drift_monitor")
 
     def __init__(self, runtime):
-        self._rt = runtime
-        self.ledger = _AuditLedger(runtime.ledger)
-        self.code = _AuditCode(runtime.code)
-        self.drift_monitor = _AuditDrift(runtime.drift_monitor)
-
-    def invoke(self, source_unit_id, inputs, invoking_credential_id):
-        return self._rt.invoke(source_unit_id, inputs, invoking_credential_id)
-
-    def invoke_in(self, target_operator_id, source_unit_id, inputs, invoking_credential_id):
-        return self._rt.invoke_in(target_operator_id, source_unit_id, inputs, invoking_credential_id)
-
-    def invocation_context(self):
-        return self._rt.invocation_context()
-
-    def resolve_credential(self, credential_id):
-        return self._rt.resolve_credential(credential_id)
-
-    def credential_authority_chain(self, credential_id):
-        return self._rt.credential_authority_chain(credential_id)
-
-    def compiled_authority_chain(self, unit_id):
-        return self._rt.compiled_authority_chain(unit_id)
-
-    def constitutional_sources_of(self, credential_id):
-        return self._rt.constitutional_sources_of(credential_id)
-
-    def act_by_id(self, act_id):
-        return self._rt.act_by_id(act_id)
+        ledger, code, monitor = runtime.ledger, runtime.code, runtime.drift_monitor
+        self.invoke = lambda unit_id, inputs, cred: runtime.invoke(unit_id, inputs, cred)
+        self.invoke_in = lambda op_id, unit_id, inputs, cred: runtime.invoke_in(op_id, unit_id, inputs, cred)
+        self.invocation_context = lambda: runtime.invocation_context()
+        self.resolve_credential = lambda cid: runtime.resolve_credential(cid)
+        self.credential_authority_chain = lambda cid: runtime.credential_authority_chain(cid)
+        self.compiled_authority_chain = lambda uid: runtime.compiled_authority_chain(uid)
+        self.constitutional_sources_of = lambda cid: runtime.constitutional_sources_of(cid)
+        self.act_by_id = lambda aid: runtime.act_by_id(aid)
+        self.ledger = _AuditLedger(ledger)
+        self.code = _AuditCode(code)
+        self.drift_monitor = _AuditDrift(monitor)
 
 
 class UntrustedWitness(ValueError):
@@ -302,8 +283,13 @@ class Runtime:
         # the single-trust-domain mode the companion discloses, and tests
         # that construct a bare Runtime run in it. Operators and cooperative
         # substrates declare their custodians through trust_custodian().
-        self.trusted_custodian_keys: set = set()
-        self.quorum_threshold = None
+        self.trusted_custodian_keys: set = set()   # own custodians: single signatures accepted
+        self.trusted_quorums: list = []            # (member keys, threshold) per quorum joined
+        # Compiled forms invalidated by an integrity failure, by identity;
+        # rebuilt from the ledger's integrity_failure acts.
+        self._invalidated_forms: set = set()
+        self._rebuild_integrity_failures_from_ledger()
+        self._governed_stack: list = []
         # Invocation stack for confidence propagation and lineage. Each
         # frame is a dict {"sub_confidences": [...], "sub_acts": [...]}.
         # Pushed before an impl runs so the impl's runtime.invoke() calls
@@ -325,29 +311,30 @@ class Runtime:
         """Declare a custodian whose witness this runtime accepts. A
         LocalCustodian contributes its key; a QuorumCustodian contributes
         its members' keys and its threshold."""
+        members = getattr(custodian, "members", None)
+        if members:
+            # A quorum: its members' keys count towards its threshold and
+            # nothing else; a member's single signature is not accepted.
+            keys = frozenset(
+                mkey for mkey in (getattr(m, "public_key_hex", None) for m in members)
+                if isinstance(mkey, str) and mkey
+            )
+            threshold = getattr(custodian, "threshold", None)
+            entry = (keys, threshold if isinstance(threshold, int) else len(keys))
+            if entry not in self.trusted_quorums:
+                self.trusted_quorums.append(entry)
+            return
         key = getattr(custodian, "public_key_hex", None)
         if isinstance(key, str) and key:
             self.trusted_custodian_keys.add(key)
-        members = getattr(custodian, "members", None)
-        if members:
-            for member in members:
-                mkey = getattr(member, "public_key_hex", None)
-                if isinstance(mkey, str) and mkey:
-                    self.trusted_custodian_keys.add(mkey)
-            threshold = getattr(custodian, "threshold", None)
-            if isinstance(threshold, int):
-                self.quorum_threshold = threshold
 
     def witness_is_trusted(self, compiled_form: CompiledForm) -> bool:
         """The integrity check: a valid witness from the declared trust
         root, or, with no trust root declared, any valid witness."""
-        if not self.trusted_custodian_keys:
+        if not self.trusted_custodian_keys and not self.trusted_quorums:
             return verify_compiled_form(compiled_form)
-        # The payload's own threshold governs how many trusted contributions
-        # a quorum witness needs: a form witnessed by the quorum as it stood
-        # at compilation stays valid as members join later.
         return verify_compiled_form_trusted(
-            compiled_form, self.trusted_custodian_keys, None,
+            compiled_form, self.trusted_custodian_keys, self.trusted_quorums,
         )
 
     def register_compiled(self, compiled_form: CompiledForm) -> str:
@@ -659,7 +646,18 @@ class Runtime:
         #     architecture's own terms and must not execute. Treating a
         #     missing payload as a pass would make the whole check
         #     bypassable by omission.
+        form_id = compiled_form.content_id()
+        if form_id in self._invalidated_forms:
+            return self._refuse(
+                compiled_form, inputs, invoking_credential_id,
+                "compiled form invalidated: integrity failure recorded on the ledger",
+            )
         if not self.witness_is_trusted(compiled_form):
+            # The integrity failure is an invalidation event: an
+            # administrative act on the ledger in the shape of a revocation,
+            # authored by the mechanism, after which the form stays
+            # invalidated across restarts.
+            self._record_integrity_failure(form_id, compiled_form.source_unit)
             return self._refuse(
                 compiled_form,
                 inputs,
@@ -831,23 +829,30 @@ class Runtime:
         #    in-scope policies commits up to n policy acts rather than
         #    stopping at the refusing one.
         policy_refusals: list = []
-        for policy_cid in compiled_form.policies:
-            if policy_cid == compiled_form.source_unit:
-                # Defensive: a unit that has itself as a policy would
-                # recurse without termination. Refuse rather than loop.
-                return self._refuse(
-                    compiled_form, inputs, invoking_credential_id,
-                    f"policy graph contains source unit {policy_cid} as its own policy",
+        # The governed unit is on a stack while its policies run, so a gate
+        # on a policy consumes a cited act against the governed unit's
+        # permit and not against the policy's own.
+        self._governed_stack.append(compiled_form.source_unit)
+        try:
+            for policy_cid in compiled_form.policies:
+                if policy_cid == compiled_form.source_unit:
+                    # Defensive: a unit that has itself as a policy would
+                    # recurse without termination. Refuse rather than loop.
+                    return self._refuse(
+                        compiled_form, inputs, invoking_credential_id,
+                        f"policy graph contains source unit {policy_cid} as its own policy",
+                    )
+                policy_result = self._invoke_as(
+                    policy_cid, inputs, invoking_credential_id, False,
                 )
-            policy_result = self._invoke_as(
-                policy_cid, inputs, invoking_credential_id, False,
-            )
-            if isinstance(policy_result, Refuse):
-                policy_refusals.append(PolicyRefusal(
-                    policy_id=policy_cid,
-                    rationale=policy_result.rationale,
-                    act_id=policy_result.act_id,
-                ))
+                if isinstance(policy_result, Refuse):
+                    policy_refusals.append(PolicyRefusal(
+                        policy_id=policy_cid,
+                        rationale=policy_result.rationale,
+                        act_id=policy_result.act_id,
+                    ))
+        finally:
+            self._governed_stack.pop()
         if policy_refusals:
             first = policy_refusals[0]
             return self._refuse(
@@ -909,7 +914,11 @@ class Runtime:
         #     audit.
         gate = spec.get("confidence_gate")
         if gate is not None:
-            self._gate_source_unit = compiled_form.source_unit
+            # A gate on a policy consumes against the governed unit's acts.
+            if not _observe_for_propagation and self._governed_stack:
+                self._gate_source_unit = self._governed_stack[-1]
+            else:
+                self._gate_source_unit = compiled_form.source_unit
             gate_rationale = self._evaluate_gate(gate, inputs)
             if gate_rationale is not None:
                 return self._refuse(
@@ -1105,10 +1114,12 @@ class Runtime:
                     f"unit {producing_unit[:12]}"
                 )
         if gate.get("single_use"):
-            # A producing act may be consumed once by this gate's unit. The
-            # consumption record is the permitted act of this compiled form
-            # that named the producing act; scanning the ledger for it is
-            # the prototype's substitute for content-identified inputs.
+            # A producing act may be consumed once. The consumption record
+            # is the permitted act of the governed unit that named the
+            # producing act: the unit's own where the gate is on the unit,
+            # the governed unit's where the gate is on one of its policies,
+            # so a refused parent does not consume. Scanning the ledger for
+            # it is the prototype's substitute for content-identified inputs.
             this_source = self._gate_source_unit
             for prior in self.ledger:
                 if prior.kind != "invocation" or prior.verdict != "permit":
@@ -1121,6 +1132,15 @@ class Runtime:
                     prior_source = None
                 if prior_source == this_source:
                     return f"confidence_gate refuses: producing act {act_id[:12]} already consumed by act {prior.content_id()[:12]}"
+        subject_field = gate.get("subject_field")
+        if subject_field is not None:
+            # The cited act must concern the same subject as the governed act.
+            produced_for = act.inputs.get(subject_field) if isinstance(act.inputs, dict) else None
+            if produced_for is None or produced_for != inputs.get(subject_field):
+                return (
+                    f"confidence_gate refuses: producing act {act_id[:12]} concerns subject "
+                    f"{produced_for!r}, not {inputs.get(subject_field)!r}"
+                )
         required = gate.get("require_origin")
         if required is not None and act.confidence_origin != required:
             return (
@@ -1131,6 +1151,31 @@ class Runtime:
             {"minimum_confidence": gate["minimum_confidence"], "applies_to_field": field},
             act.output_or_rationale,
         )
+
+    def _record_integrity_failure(self, form_id: str, unit_cid: str) -> Act:
+        """Commit an integrity failure as an administrative act and
+        invalidate the form for the rest of this and every later run."""
+        self._invalidated_forms.add(form_id)
+        act = Act(
+            kind="administrative",
+            previous_act_id=self.ledger.latest(),
+            compiled_form_id=form_id,
+            invoking_credential_id="",
+            inputs={"action": "integrity_failure", "target_unit": unit_cid,
+                    "compiled_form": form_id},
+            verdict="executed",
+            output_or_rationale={"reason": "witness does not verify against the trust root"},
+            governance_tick=self.clock.tick(),
+            recorded_time=self.clock.wall(),
+        )
+        self.ledger.append(act)
+        return act
+
+    def _rebuild_integrity_failures_from_ledger(self) -> None:
+        for act in self.ledger:
+            if act.kind == "administrative" and isinstance(act.inputs, dict) \
+                    and act.inputs.get("action") == "integrity_failure" and act.verdict == "executed":
+                self._invalidated_forms.add(act.inputs.get("compiled_form", ""))
 
     def _record_drift_detected(self, unit_cid: str, triggering_act_id: str, violated) -> Act:
         """Commit the drift detection as an administrative act authored by

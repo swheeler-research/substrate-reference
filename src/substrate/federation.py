@@ -307,37 +307,49 @@ def verify_compiled_form(compiled_form) -> bool:
     return False
 
 
-def verify_compiled_form_trusted(compiled_form, trusted_keys, threshold=None) -> bool:
+def verify_compiled_form_trusted(compiled_form, own_keys, quorums=()) -> bool:
     """Verify a compiled form's witness against a trust root the verifier
     holds, not against keys the payload itself carries.
 
-    `trusted_keys` is the set of custodian public keys (hex) the verifier
-    recognises; `threshold` is the number of trusted contributions a quorum
-    witness must carry, defaulting to the payload's own threshold. A
-    single-signature witness passes only if its key is trusted. A quorum
-    witness passes only if at least `threshold` contributions verify AND
-    are from trusted keys. Without this, a form signed by any fresh key
-    verifies, which is a signature check and not an integrity check.
+    `own_keys` are the custodian keys whose single signature the verifier
+    accepts (its own operator's custodians). `quorums` are the quorums the
+    verifier has joined, each a pair of (member keys, threshold); a quorum
+    witness passes if, for some one of them, at least that threshold of
+    distinct member keys verify, and never fewer than the payload's own
+    threshold. A single-signature witness from a quorum member is not a
+    quorum witness and is refused: membership is not quorum. Distinct keys
+    are counted, so one key under two names is one. An operator that
+    belongs to several cooperative substrates holds several quorums, and a
+    form witnessed by any one of them as it stood when trust was declared
+    verifies against that one.
     """
     if not verify_compiled_form(compiled_form):
         return False
     payload = compiled_form.witness_payload
-    trusted = set(trusted_keys or ())
-    if not trusted:
+    own = set(own_keys or ())
+    quorums = [(frozenset(keys), t) for keys, t in (quorums or ())]
+    if not own and not quorums:
         return False
     if payload.get("type") == "single_signature":
-        return payload.get("public_key") in trusted
+        return payload.get("public_key") in own
     if payload.get("type") == "quorum_witness":
         expected_hash = payload.get("payload_hash")
-        need = threshold if isinstance(threshold, int) and threshold >= 1 else payload.get("threshold", 1)
-        valid = 0
+        declared = payload.get("threshold")
+        declared = declared if isinstance(declared, int) and declared >= 1 else 1
+        signed = {}
         for _name, contrib in (payload.get("contributions") or {}).items():
             if not isinstance(contrib, dict):
                 continue
             key = contrib.get("public_key", "")
-            if key in trusted and verify_witness(key, expected_hash, contrib.get("signature", "")):
-                valid += 1
-        return valid >= need
+            if key in signed:
+                continue
+            signed[key] = verify_witness(key, expected_hash, contrib.get("signature", ""))
+        valid_keys = {k for k, ok in signed.items() if ok}
+        for keys, threshold in quorums:
+            need = max(threshold if isinstance(threshold, int) and threshold >= 1 else 1, declared)
+            if len(valid_keys & keys) >= need:
+                return True
+        return False
     return False
 
 
@@ -373,17 +385,20 @@ def verify_quorum_witness(payload_hash: str, quorum_payload: dict) -> bool:
         return False
     if not isinstance(contributions, dict):
         return False
-    valid = 0
+    # Distinct keys, not contributions: one key repeated under two names
+    # is one member.
+    valid_keys = set()
     for _custodian_name, contrib in contributions.items():
         if not isinstance(contrib, dict):
             continue
+        key = contrib.get("public_key", "")
         if verify_witness(
-            public_key_hex=contrib.get("public_key", ""),
+            public_key_hex=key,
             payload_hash=payload_hash,
             signature_hex=contrib.get("signature", ""),
         ):
-            valid += 1
-    return valid >= threshold
+            valid_keys.add(key)
+    return len(valid_keys) >= threshold
 
 
 class CooperativeSubstrate:
