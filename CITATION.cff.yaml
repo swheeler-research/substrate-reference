@@ -19,10 +19,10 @@ identifiers:
     value: "10.5281/zenodo.20238427"
     description: "Concept DOI (all versions)"
   - type: doi
-    value: "10.5281/zenodo.20238428"
-    description: "Version DOI (v1.0; the software record becomes v2.0 at the GitHub release)"
+    value: "10.5281/zenodo.23246238"
+    description: "Version DOI (v2.0)"
   - type: url
-    value: "https://zenodo.org/records/20238428"
+    value: "https://zenodo.org/records/23246238"
     description: "Zenodo record"
 keywords:
   - governed computation
