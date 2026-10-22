@@ -12,7 +12,7 @@ version: "v2.0"
 date-released: 2026-05-16
 url: "https://github.com/swheeler-research/substrate-reference"
 repository-code: "https://github.com/swheeler-research/substrate-reference"
-license: CC-BY-4.0
+license: MIT
 doi: "10.5281/zenodo.20238427"
 identifiers:
   - type: doi

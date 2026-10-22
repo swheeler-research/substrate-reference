@@ -1,7 +1,7 @@
 # The Sovereign Substrate: Reference Implementation
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20238427.svg)](https://doi.org/10.5281/zenodo.20238427)
-[![Licence: CC BY 4.0](https://img.shields.io/badge/Licence-CC%20BY%204.0-blue.svg)](https://creativecommons.org/licenses/by/4.0/)
+[![Licence: MIT](https://img.shields.io/badge/Licence-MIT-blue.svg)](LICENSE)
 
 Python reference implementation of the Sovereign Substrate architecture.
 
@@ -45,7 +45,7 @@ When referencing the substrate as a whole, the architectural papers should be ci
 
 ## Licence
 
-Licensed under the [Creative Commons Attribution 4.0 International licence](https://creativecommons.org/licenses/by/4.0/) (CC BY 4.0). Copy, redistribution, adaptation, and derivative work in any medium or format, including commercial use, on the single condition that the author and the work are attributed.
+The code is licensed under the [MIT licence](LICENSE). Releases up to and including v2.0, among them the v2.0 Zenodo deposit, were published under the Creative Commons Attribution 4.0 International licence (CC BY 4.0), and those copies remain available under those terms. The architectural papers are licensed separately, under CC BY 4.0.
 
 ## Correspondence
 
